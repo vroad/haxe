@@ -518,7 +518,7 @@ let get_config com =
 	| Js ->
 		{
 			pf_static = false;
-			pf_sys = false;
+			pf_sys = true;
 			pf_locals_scope = false;
 			pf_captured_scope = false;
 			pf_unique_locals = false;
