@@ -20,6 +20,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 package haxe.io;
+import nodejs.Buffer;
 
 #if cpp
 using cpp.NativeArray;
@@ -49,6 +50,8 @@ class Bytes {
 		return untyped b[pos];
 		#elseif java
 		return untyped b[pos] & 0xFF;
+		#elseif nodejs
+		return untyped b[pos];
 		#else
 		return b[pos];
 		#end
@@ -67,13 +70,15 @@ class Bytes {
 		b[pos] = cast v;
 		#elseif cs
 		b[pos] = cast v;
+		#elseif nodejs
+		untyped b[pos] = v;
 		#else
 		b[pos] = v & 0xFF;
 		#end
 	}
 
 	public function blit( pos : Int, src : Bytes, srcpos : Int, len : Int ) : Void {
-		#if !neko
+		#if (!neko && !nodejs)
 		if( pos < 0 || srcpos < 0 || len < 0 || pos + len > length || srcpos + len > src.length ) throw Error.OutsideBounds;
 		#end
 		#if neko
@@ -89,6 +94,8 @@ class Bytes {
 		cs.system.Array.Copy(src.b, srcpos, b, pos, len);
 		#elseif cpp
 		b.blit(pos, src.b, srcpos, len);
+		#elseif nodejs
+		src.b.copy(b, pos, srcpos, srcpos + len);
 		#else
 		var b1 = b;
 		var b2 = src.b;
@@ -118,6 +125,8 @@ class Bytes {
 			set(pos++,value);
 		#elseif cpp
 		untyped __global__.__hxcpp_memory_memset(b,pos,len,value);
+		#elseif nodejs
+		untyped b.fill(value, pos, pos + len);
 		#else
 		for( i in 0...len )
 			set(pos++, value);
@@ -145,6 +154,8 @@ class Bytes {
 		var newarr = new cs.NativeArray(len);
 		cs.system.Array.Copy(b, pos, newarr, 0, len);
 		return new Bytes(len, newarr);
+		#elseif nodejs
+		return new Bytes(len,b.slice(pos,pos+len));
 		#else
 		return new Bytes(len,b.slice(pos,pos+len));
 		#end
@@ -209,6 +220,8 @@ class Bytes {
 		#elseif cpp
 		if( pos < 0 || pos + 8 > length ) throw Error.OutsideBounds;
 		return untyped __global__.__hxcpp_memory_get_double(b,pos);
+		#elseif nodejs
+		return b.readDoubleLE(pos);
 		#else
 		var b = new haxe.io.BytesInput(this,pos,8);
 		return b.readDouble();
@@ -224,6 +237,8 @@ class Bytes {
 		#elseif cpp
 		if( pos < 0 || pos + 4 > length ) throw Error.OutsideBounds;
 		return untyped __global__.__hxcpp_memory_get_float(b,pos);
+		#elseif nodejs
+		return b.readFloatLE(pos);
 		#else
 		var b = new haxe.io.BytesInput(this,pos,4);
 		return b.readFloat();
@@ -239,6 +254,8 @@ class Bytes {
 		#elseif cpp
 		if( pos < 0 || pos + 8 > length ) throw Error.OutsideBounds;
 		untyped __global__.__hxcpp_memory_set_double(b,pos,v);
+		#elseif nodejs
+		b.writeDoubleLE(v, pos);
 		#else
 		throw "Not supported";
 		#end
@@ -253,6 +270,8 @@ class Bytes {
 		#elseif cpp
 		if( pos < 0 || pos + 4 > length ) throw Error.OutsideBounds;
 		untyped __global__.__hxcpp_memory_set_float(b,pos,v);
+		#elseif nodejs
+		b.writeFloatLE(v, pos);
 		#else
 		throw "Not supported";
 		#end
@@ -279,6 +298,8 @@ class Bytes {
 		try
 			return new String(b, pos, len, "UTF-8")
 		catch (e:Dynamic) throw e;
+		#elseif nodejs
+		return b.toString(null, 0, len);
 		#else
 		var s = "";
 		var b = b;
@@ -331,6 +352,8 @@ class Bytes {
 			return new String(b, 0, length, "UTF-8");
 		}
 		catch (e:Dynamic) throw e;
+		#elseif nodejs
+		return b.toString();
 		#else
 		return getString(0,length);
 		#end
@@ -371,6 +394,8 @@ class Bytes {
 		return new Bytes(length, new cs.NativeArray(length));
 		#elseif java
 		return new Bytes(length, new java.NativeArray(length));
+		#elseif nodejs
+		return new Bytes(length, new nodejs.Buffer(length));
 		#else
 		var a = new Array();
 		for( i in 0...length )
@@ -403,6 +428,9 @@ class Bytes {
 			return new Bytes(b.length, b);
 		}
 		catch (e:Dynamic) throw e;
+		#elseif nodejs
+		var b = new nodejs.Buffer(s);
+		return new Bytes(b.length, b);
 		#else
 		var a = new Array();
 		// utf16-decode and utf8-encode
@@ -441,6 +469,8 @@ class Bytes {
 		return new Bytes(untyped __call__("strlen", b), b);
 		#elseif cs
 		return new Bytes(b.Length,b);
+		#elseif nodejs
+		return new Bytes(b.length,b);
 		#else
 		return new Bytes(b.length,b);
 		#end
@@ -461,6 +491,8 @@ class Bytes {
 		return untyped b.unsafeGet(pos);
 		#elseif java
 		return untyped b[pos] & 0xFF;
+		#elseif nodejs
+		return b[pos];
 		#else
 		return b[pos];
 		#end

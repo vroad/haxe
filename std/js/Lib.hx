@@ -22,6 +22,7 @@
 package js;
 
 class Lib {
+    private static var node_ndll:Dynamic = null;
 
 	/**
 		Inserts a 'debugger' statement that will make a breakpoint if a debugger is available.
@@ -40,5 +41,12 @@ class Lib {
 	public static inline function eval( code : String ) : Dynamic {
 		return untyped __js__("eval")(code);
 	}
-
+    
+	#if nodejs
+    public static function load(name:String, func:String, args:Int) : Dynamic {
+        if (node_ndll == null)
+            node_ndll = untyped require('bindings')('node_ndll');
+        return untyped node_ndll.load_lib(name, func, args);
+    }
+	#end
 }
