@@ -185,10 +185,7 @@ class BytesBuffer {
 		#elseif java
 		var buf = b.toByteArray();
 		var bytes = new Bytes(buf.length, buf);
-		#elseif nodejs
-        var bd = new BytesData(buf);
-        var bytes = new Bytes(buf.length, bd);
-        #else
+		#else
 		var bytes = new Bytes(b.length,b);
 		#end
 		b = null;

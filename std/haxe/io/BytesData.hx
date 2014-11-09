@@ -34,8 +34,6 @@ package haxe.io;
 	typedef BytesData = java.NativeArray<java.StdTypes.Int8>;
 #elseif cs
 	typedef BytesData = cs.NativeArray<cs.StdTypes.UInt8>;
-#elseif nodejs
-    typedef BytesData = nodejs.Buffer;
 #else
 	typedef BytesData = Array<Int>;
 #end
