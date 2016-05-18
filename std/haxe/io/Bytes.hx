@@ -90,7 +90,7 @@ class Bytes {
 		#elseif java
 		java.lang.System.arraycopy(src.b, srcpos, b, pos, len);
 		#elseif cs
-		cs.system.Array.Copy(src.b, srcpos, b, pos, len);
+		cs.system.Buffer.BlockCopy(src.b, srcpos, b, pos, len);
 		#elseif python
 		python.Syntax.pythonCode("self.b[{0}:{0}+{1}] = src.b[srcpos:srcpos+{1}]", pos, len);
 		#elseif cpp
@@ -123,7 +123,10 @@ class Bytes {
 		for( i in 0...len&3 )
 			set(pos++,value);
 		#elseif cpp
-		untyped __global__.__hxcpp_memory_memset(b,pos,len,value);
+		untyped __global__.__hxcpp_memory_memset(b, pos, len, value);
+		#elseif cs
+		for( i in 0...len )
+			b[pos++] = value;
 		#else
 		for( i in 0...len )
 			set(pos++, value);
@@ -149,7 +152,7 @@ class Bytes {
 		return new Bytes(len, newarr);
 		#elseif cs
 		var newarr = new cs.NativeArray(len);
-		cs.system.Array.Copy(b, pos, newarr, 0, len);
+		cs.system.Buffer.BlockCopy(b, pos, newarr, 0, len);
 		return new Bytes(len, newarr);
 		#elseif python
 		return new Bytes(len, python.Syntax.arrayAccess(b, pos, pos+len) );
@@ -218,7 +221,9 @@ class Bytes {
 		return b.readDouble();
 		#elseif cpp
 		if( pos < 0 || pos + 8 > length ) throw Error.OutsideBounds;
-		return untyped __global__.__hxcpp_memory_get_double(b,pos);
+		return untyped __global__.__hxcpp_memory_get_double(b, pos);
+		#elseif cs
+		return cs.system.BitConverter.ToDouble(b, pos);
 		#else
 		return FPHelper.i64ToDouble(getInt32(pos),getInt32(pos+4));
 		#end
@@ -237,7 +242,9 @@ class Bytes {
 		return b.readFloat();
 		#elseif cpp
 		if( pos < 0 || pos + 4 > length ) throw Error.OutsideBounds;
-		return untyped __global__.__hxcpp_memory_get_float(b,pos);
+		return untyped __global__.__hxcpp_memory_get_float(b, pos);
+		#elseif cs
+		return cs.system.BitConverter.ToSingle(b, pos);
 		#else
 		var b = new haxe.io.BytesInput(this,pos,4);
 		return b.readFloat();
@@ -259,7 +266,11 @@ class Bytes {
 		b.writeDouble(v);
 		#elseif cpp
 		if( pos < 0 || pos + 8 > length ) throw Error.OutsideBounds;
-		untyped __global__.__hxcpp_memory_set_double(b,pos,v);
+		untyped __global__.__hxcpp_memory_set_double(b, pos, v);
+		#elseif cs
+		var bytes:BytesData = untyped __cs__("System.BitConverter.GetBytes((double)v)");
+		for (i in 0 ... 8)
+			b[pos++] = bytes[i];
 		#else
 		var i = FPHelper.doubleToI64(v);
 		setInt32(pos, i.low);
@@ -282,7 +293,11 @@ class Bytes {
 		b.writeFloat(v);
 		#elseif cpp
 		if( pos < 0 || pos + 4 > length ) throw Error.OutsideBounds;
-		untyped __global__.__hxcpp_memory_set_float(b,pos,v);
+		untyped __global__.__hxcpp_memory_set_float(b, pos, v);
+		#elseif cs
+		var bytes:BytesData = untyped __cs__("System.BitConverter.GetBytes((float)v)");
+		for (i in 0 ... 4)
+			b[pos++] = bytes[i];
 		#else
 		setInt32(pos, FPHelper.floatToI32(v));
 		#end
