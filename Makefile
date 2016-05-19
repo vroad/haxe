@@ -18,7 +18,6 @@ OUTPUT=haxe
 EXTENSION=
 OCAMLOPT=ocamlopt
 OCAMLC=ocamlc
-LFLAGS=-ccopt "-L${GCC_LIB}"
 
 CFLAGS= -g -I libs/extlib -I libs/extc -I libs/neko -I libs/javalib -I libs/ziplib -I libs/swflib -I libs/xml-light -I libs/ttflib -I libs/ilib -I libs/objsize
 
@@ -71,7 +70,7 @@ libs:
 	make -C libs/objsize OCAMLOPT=$(OCAMLOPT) OCAMLC=$(OCAMLC)
 
 haxe: $(MODULES:=.cmx)
-	$(OCAMLOPT) -o $(OUTPUT) $(NATIVE_LIBS) $(LIBS) $(LFLAGS) $(MODULES:=.cmx)
+	$(OCAMLOPT) -o $(OUTPUT) $(NATIVE_LIBS) $(LIBS) $(MODULES:=.cmx)
 
 haxelib:
 	(cd $(CURDIR)/extra/haxelib_src && $(CURDIR)/$(OUTPUT) haxelib.hxml && nekotools boot bin/haxelib.n)
