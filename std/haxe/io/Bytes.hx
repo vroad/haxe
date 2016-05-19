@@ -233,6 +233,9 @@ class Bytes {
 		Returns the IEEE single precision value at given position (in low endian encoding).
 		Result is unspecified if reading outside of the bounds
 	**/
+	#if (cs && unsafe)
+	@:unsafe
+	#end
 	#if (neko_v21 || (cpp && !cppia)) inline #end
 	public function getFloat( pos : Int ) : Float {
 		#if neko_v21
@@ -244,7 +247,16 @@ class Bytes {
 		if( pos < 0 || pos + 4 > length ) throw Error.OutsideBounds;
 		return untyped __global__.__hxcpp_memory_get_float(b, pos);
 		#elseif cs
+		#if unsafe
+		var value:UInt =
+			b[0 + pos] << 0 |
+			b[1 + pos] << 8 |
+			b[2 + pos] << 16 |
+			b[3 + pos] << 24;
+		return untyped __cs__("*(((float*)&value))");
+		#else
 		return cs.system.BitConverter.ToSingle(b, pos);
+		#end
 		#else
 		var b = new haxe.io.BytesInput(this,pos,4);
 		return b.readFloat();
@@ -282,6 +294,9 @@ class Bytes {
 		Store the IEEE single precision value at given position in low endian encoding.
 		Result is unspecified if writing outside of the bounds.
 	**/
+	#if (cs && unsafe)
+	@:unsafe
+	#end
 	#if neko_v21 inline #end
 	public function setFloat( pos : Int, v : Float ) : Void {
 		#if neko_v21
@@ -295,9 +310,18 @@ class Bytes {
 		if( pos < 0 || pos + 4 > length ) throw Error.OutsideBounds;
 		untyped __global__.__hxcpp_memory_set_float(b, pos, v);
 		#elseif cs
+		#if unsafe
 		var bytes:BytesData = untyped __cs__("System.BitConverter.GetBytes((float)v)");
 		for (i in 0 ... 4)
 			b[pos++] = bytes[i];
+		#else
+		untyped __cs__("float fv = (float)v"); 
+		var value:UInt = untyped __cs__("*((uint*)&fv)");
+		b[pos] = (value & 0xFF);
+		b[pos + 1] = ((value >> 8) & 0xFF);
+		b[pos + 2] = ((value >> 16) & 0xFF);
+		b[pos + 3] = ((value >> 24) & 0xFF);
+		#end
 		#else
 		setInt32(pos, FPHelper.floatToI32(v));
 		#end
