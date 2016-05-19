@@ -21,6 +21,19 @@
  */
 package js;
 
+private class HaxeError extends js.Error {
+
+	var val:Dynamic;
+
+	public function new(val:Dynamic) untyped {
+		super();
+		this.val = __define_feature__("js.Boot.HaxeError", val);
+		this.message = String(val);
+		if (js.Error.captureStackTrace) js.Error.captureStackTrace(this, HaxeError);
+	}
+}
+
+@:dox(hide)
 class Boot {
 
 	private static function __unhtml(s : String) {
@@ -67,14 +80,21 @@ class Boot {
 		return untyped __define_feature__("js.Boot.isEnum", e.__ename__);
 	}
 
-	static inline function getClass(o:Dynamic) : Dynamic {
+	static function getClass(o:Dynamic) : Dynamic {
 		if (Std.is(o, Array))
 			return Array;
-		else
-			return untyped __define_feature__("js.Boot.getClass", o.__class__);
+		else {
+			var cl = untyped __define_feature__("js.Boot.getClass", o.__class__);
+			if (cl != null)
+				return cl;
+			var name = __nativeClassName(o);
+			if (name != null)
+				return __resolveNativeClass(name);
+			return null;
+		}
 	}
 
-	@:ifFeature("may_print_enum")
+	@:ifFeature("has_enum")
 	private static function __string_rec(o,s:String) {
 		untyped {
 			if( o == null )
@@ -116,7 +136,7 @@ class Boot {
 					// strange error on IE
 					return "???";
 				}
-				if( tostr != null && tostr != __js__("Object.toString") ) {
+				if( tostr != null && tostr != __js__("Object.toString") && __typeof__(tostr) == "function" ) {
 					var s2 = o.toString();
 					if( s2 != "[object Object]")
 						return s2;
@@ -180,12 +200,15 @@ class Boot {
 			return true;
 		default:
 			if( o != null ) {
-				// Check if o is an instance of a Haxe class
+				// Check if o is an instance of a Haxe class or a native JS object
 				if( (untyped __js__("typeof"))(cl) == "function" ) {
-					if( untyped __js__("o instanceof cl") ) {
+					if( untyped __js__("o instanceof cl") )
 						return true;
-					}
 					if( __interfLoop(getClass(o),cl) )
+						return true;
+				}
+				else if ( (untyped __js__("typeof"))(cl) == "object" && __isNativeObj(cl) ) {
+					if( untyped __js__("o instanceof cl") )
 						return true;
 				}
 			} else {
@@ -201,6 +224,27 @@ class Boot {
 	@:ifFeature("typed_cast") private static function __cast(o : Dynamic, t : Dynamic) {
 		if (__instanceof(o, t)) return o;
 		else throw "Cannot cast " +Std.string(o) + " to " +Std.string(t);
+	}
+
+	static var __toStr = untyped __js__("{}.toString");
+	// get native JS [[Class]]
+	static function __nativeClassName(o:Dynamic):String {
+		var name = untyped __toStr.call(o).slice(8, -1);
+		// exclude general Object and Function
+		// also exclude Math and JSON, because instanceof cannot be called on them
+		if (name == "Object" || name == "Function" || name == "Math" || name == "JSON")
+			return null;
+		return name;
+	}
+
+	// check for usable native JS object
+	static function __isNativeObj(o:Dynamic):Bool {
+		return __nativeClassName(o) != null;
+	}
+
+	// resolve native JS class in the global scope:
+	static function __resolveNativeClass(name:String) {
+		return untyped js.Lib.global[name];
 	}
 
 }

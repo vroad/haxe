@@ -26,30 +26,30 @@
 	If the first argument to any of the methods is null, the result is
 	unspecified.
 **/
-#if cs
-@:keep
+#if cpp
+using cpp.NativeString;
 #end
 class StringTools {
 	/**
 		Encode an URL by using the standard format.
 	**/
-	#if (!java && !cpp) inline #end public static function urlEncode( s : String ) : String untyped {
-		#if flash9
-			return __global__["encodeURIComponent"](s);
-		#elseif flash
-			return _global["escape"](s);
+	#if (!java && !cpp) inline #end public static function urlEncode( s : String ) : String {
+		#if flash
+			return untyped __global__["encodeURIComponent"](s);
 		#elseif neko
-			return new String(_urlEncode(s.__s));
+			return untyped new String(_urlEncode(s.__s));
 		#elseif js
-			return encodeURIComponent(s);
+			return untyped encodeURIComponent(s);
 		#elseif cpp
-			return s.__URLEncode();
+			return untyped s.__URLEncode();
 		#elseif java
 			try
 				return untyped __java__("java.net.URLEncoder.encode(s, \"UTF-8\")")
 			catch (e:Dynamic) throw e;
 		#elseif cs
-			return cs.system.Uri.EscapeUriString(s);
+			return untyped cs.system.Uri.EscapeDataString(s);
+		#elseif python
+			return python.lib.urllib.Parse.quote(s, "");
 		#else
 			return null;
 		#end
@@ -58,23 +58,23 @@ class StringTools {
 	/**
 		Decode an URL using the standard format.
 	**/
-	#if (!java && !cpp) inline #end public static function urlDecode( s : String ) : String untyped {
-		#if flash9
-			return __global__["decodeURIComponent"](s.split("+").join(" "));
-		#elseif flash
-			return _global["unescape"](s);
+	#if (!java && !cpp) inline #end public static function urlDecode( s : String ) : String {
+		#if flash
+			return untyped __global__["decodeURIComponent"](s.split("+").join(" "));
 		#elseif neko
-			return new String(_urlDecode(s.__s));
+			return untyped new String(_urlDecode(s.__s));
 		#elseif js
-			return decodeURIComponent(s.split("+").join(" "));
+			return untyped decodeURIComponent(s.split("+").join(" "));
 		#elseif cpp
-			return s.__URLDecode();
+			return untyped s.__URLDecode();
 		#elseif java
 			try
 				return untyped __java__("java.net.URLDecoder.decode(s, \"UTF-8\")")
 			catch (e:Dynamic) throw e;
 		#elseif cs
-			return cs.system.Uri.UnescapeDataString(s);
+			return untyped cs.system.Uri.UnescapeDataString(s);
+		#elseif python
+			return python.lib.urllib.Parse.unquote(s);
 		#else
 			return null;
 		#end
@@ -129,6 +129,15 @@ class StringTools {
 		return untyped s.startsWith(start);
 		#elseif cs
 		return untyped s.StartsWith(start);
+		#elseif cpp
+		if (s.length<start.length)
+			return false;
+		var p0 = s.c_str();
+		var p1 = start.c_str();
+		for(i in 0...start.length)
+			if ( p0.at(i) != p1.at(i) )
+				return false;
+		return true;
 		#else
 		return( s.length >= start.length && s.substr(0, start.length) == start );
 		#end
@@ -146,6 +155,15 @@ class StringTools {
 		return untyped s.endsWith(end);
 		#elseif cs
 		return untyped s.EndsWith(end);
+		#elseif cpp
+		if (s.length<end.length)
+			return false;
+		var p0 = s.c_str().add( s.length-end.length );
+		var p1 = end.c_str();
+		for(i in 0...end.length)
+			if ( p0.at(i) != p1.at(i) )
+				return false;
+		return true;
 		#else
 		var elen = end.length;
 		var slen = s.length;
@@ -163,6 +181,9 @@ class StringTools {
 		`s`, the result is false.
 	**/
 	public static function isSpace( s : String, pos : Int ) : Bool {
+		#if python
+		if (s.length == 0 || pos < 0 || pos >= s.length) return false;
+		#end
 		var c = s.charCodeAt( pos );
 		return (c > 8 && c < 14) || c == 32;
 	}
@@ -311,7 +332,7 @@ class StringTools {
 		its length equals `digits`.
 	**/
 	public static function hex( n : Int, ?digits : Int ) {
-		#if flash9
+		#if flash
 			var n : UInt = n;
 			var s : String = untyped n.toString(16);
 			s = s.toUpperCase();
@@ -323,43 +344,52 @@ class StringTools {
 				n >>>= 4;
 			} while( n > 0 );
 		#end
+		#if python
+		if (digits != null && s.length < digits) {
+			var diff = digits - s.length;
+			for (_ in 0...diff) {
+				s = "0" + s;
+			}
+		}
+		#else
 		if( digits != null )
 			while( s.length < digits )
 				s = "0"+s;
+		#end
 		return s;
 	}
 
 	/**
-		Returns the character code at position `index` of String `s`.
+		Returns the character code at position `index` of String `s`, or an
+		end-of-file indicator at if `position` equals `s.length`.
 
-		This method is faster than String.charCodeAt() on most platforms.
-		However, unlike String.charCodeAt(), the result is unspecified if
-		`index` is negative or exceeds `s.length`.
+		This method is faster than String.charCodeAt() on some platforms, but
+		the result is unspecified if `index` is negative or greater than
+		`s.length`.
+
+		End of file status can be checked by calling `StringTools.isEof` with
+		the returned value as argument.
 
 		This operation is not guaranteed to work if `s` contains the \0
 		character.
 	**/
-	public static inline function fastCodeAt( s : String, index : Int ) : Int untyped {
+	public static inline function fastCodeAt( s : String, index : Int ) : Int {
 		#if neko
 		return untyped __dollar__sget(s.__s, index);
 		#elseif cpp
-		return s.cca(index);
-		#elseif flash9
-		return s.cca(index);
+		return untyped s.cca(index);
 		#elseif flash
-		return s["cca"](index);
+		return untyped s.cca(index);
 		#elseif java
 		return ( index < s.length ) ? cast(_charAt(s, index), Int) : -1;
 		#elseif cs
-		return ( cast(index, UInt) < s.length ) ? cast(untyped s[index], Int) : -1;
+		return ( cast(index, UInt) < s.length ) ? cast(s[index], Int) : -1;
 		#elseif js
-			#if mt
-		return (untyped s).cca(index);
-			#else
 		return (untyped s).charCodeAt(index);
-			#end
+		#elseif python
+		return if (index >= s.length) -1 else python.internal.UBuiltins.ord(python.Syntax.arrayAccess(s, index));
 		#else
-		return s.cca(index);
+		return untyped s.cca(index);
 		#end
 	}
 
@@ -367,10 +397,8 @@ class StringTools {
 		Tells if `c` represents the end-of-file (EOF) character.
 	*/
 	@:noUsing public static inline function isEof( c : Int ) : Bool {
-		#if (flash9 || cpp)
+		#if (flash || cpp)
 		return c == 0;
-		#elseif flash8
-		return c <= 0; // fast NaN
 		#elseif js
 		return c != c; // fast NaN
 		#elseif neko
@@ -378,6 +406,8 @@ class StringTools {
 		#elseif cs
 		return c == -1;
 		#elseif java
+		return c == -1;
+		#elseif python
 		return c == -1;
 		#else
 		return false;

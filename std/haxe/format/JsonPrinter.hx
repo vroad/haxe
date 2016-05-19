@@ -1,26 +1,63 @@
+/*
+ * Copyright (C)2005-2014 Haxe Foundation
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ */
 package haxe.format;
 
+/**
+	An implementation of JSON printer in Haxe.
+
+	This class is used by `haxe.Json` when native JSON implementation
+	is not available.
+**/
 class JsonPrinter {
 
+	/**
+		Encodes `o` value and returns the resulting JSON string.
+
+		If `replacer` is given and is not null, it is used to retrieve
+		actual object to be encoded. The `replacer` function two parameters,
+		the key and the value being encoded. Initial key value is an empty string.
+
+		If `space` is given and is not null, the result will be pretty-printed.
+		Successive levels will be indented by this string.
+	**/
 	static public function print(o:Dynamic, ?replacer:Dynamic -> Dynamic -> Dynamic, ?space:String) : String {
 		var printer = new JsonPrinter(replacer, space);
 		printer.write("", o);
 		return printer.buf.toString();
 	}
 
-	var buf : #if flash9 flash.utils.ByteArray #else StringBuf #end;
+	var buf : #if flash flash.utils.ByteArray #else StringBuf #end;
 	var replacer : Dynamic -> Dynamic -> Dynamic;
 	var indent:String;
 	var pretty:Bool;
 	var nind:Int;
-	
+
 	function new(replacer:Dynamic -> Dynamic -> Dynamic, space:String) {
 		this.replacer = replacer;
 		this.indent = space;
 		this.pretty = space != null;
 		this.nind = 0;
 
-		#if flash9
+		#if flash
 		buf = new flash.utils.ByteArray();
 		buf.endian = flash.utils.Endian.BIG_ENDIAN;
 		buf.position = 0;
@@ -28,11 +65,11 @@ class JsonPrinter {
 		buf = new StringBuf();
 		#end
 	}
-	
+
 	inline function ipad ():Void {
 		if (pretty) add(StringTools.lpad('', indent, nind * indent.length));
 	}
-	
+
 	inline function newl ():Void {
 		if (pretty) addChar('\n'.code);
 	}
@@ -83,7 +120,7 @@ class JsonPrinter {
 				var v : Date = v;
 				quote(v.toString());
 			} else
-				#if flash9
+				#if flash
 				classString(v);
 				#else
 				objString(v);
@@ -99,7 +136,7 @@ class JsonPrinter {
 	}
 
 	@:extern inline function addChar(c:Int) {
-		#if flash9
+		#if flash
 		buf.writeByte(c);
 		#else
 		buf.addChar(c);
@@ -107,7 +144,7 @@ class JsonPrinter {
 	}
 
 	@:extern inline function add(v:String) {
-		#if flash9
+		#if flash
 		// argument is not always a string but will be automatically casted
 		buf.writeUTFBytes(v);
 		#else
@@ -115,7 +152,7 @@ class JsonPrinter {
 		#end
 	}
 
-	#if flash9
+	#if flash
 	function classString ( v : Dynamic ) {
 		fieldsString(v,Type.getInstanceFields(Type.getClass(v)));
 	}
@@ -129,11 +166,12 @@ class JsonPrinter {
 		addChar('{'.code);
 		var len = fields.length;
 		var last = len - 1;
+		var first = true;
 		for( i in 0...len ) {
 			var f = fields[i];
 			var value = Reflect.field(v,f);
 			if( Reflect.isFunction(value) ) continue;
-			if( i > 0 ) addChar(','.code) else nind++;
+			if( first ) { nind++; first = false; } else addChar(','.code);
 			newl();
 			ipad();
 			quote(f);
@@ -171,7 +209,7 @@ class JsonPrinter {
 			case 8: add('\\b');
 			case 12: add('\\f');
 			default:
-				#if flash9
+				#if flash
 				if( c >= 128 ) add(String.fromCharCode(c)) else addChar(c);
 				#else
 				addChar(c);

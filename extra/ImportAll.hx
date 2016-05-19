@@ -40,18 +40,16 @@ class ImportAll {
 			if( !Context.defined("js") ) return;
 		case "cpp":
 			if( !Context.defined("cpp") ) return;
-		case "flash8":
-			if( !Context.defined("flash") || Context.defined("flash9") ) return;
 		case "flash":
 			if( !Context.defined("flash9") ) return;
-		case "mt","mtwin":
-			return;
 		case "sys":
 			if( !Context.defined("neko") && !Context.defined("php") && !Context.defined("cpp") ) return;
 		case "java":
 			if( !Context.defined("java") ) return;
 		case "cs":
 			if( !Context.defined("cs") ) return;
+		case "python":
+			if( !Context.defined("python") ) return;
 		case "tools":
 			return;
 		case "build-tool":
@@ -74,8 +72,6 @@ class ImportAll {
 				var full = (pack == "") ? file : pack + "." + file;
 				if( StringTools.endsWith(file, ".hx") ) {
 					var cl = full.substr(0, full.length - 3);
-					if( StringTools.startsWith(cl,"flash8.") )
-						cl = "flash."+cl.substr(7);
 					switch( cl ) {
 					case "ImportAll", "neko.db.MacroManager": continue;
 					case "haxe.TimerQueue": if( Context.defined("neko") || Context.defined("php") || Context.defined("cpp") ) continue;
@@ -84,6 +80,7 @@ class ImportAll {
 					case "haxe.macro.ExampleJSGenerator","haxe.macro.Context", "haxe.macro.Compiler": if( !Context.defined("neko") ) continue;
 					case "haxe.remoting.SocketWrapper": if( !Context.defined("flash") ) continue;
 					case "haxe.remoting.SyncSocketConnection": if( !(Context.defined("neko") || Context.defined("php") || Context.defined("cpp")) ) continue;
+					case "sys.db.Sqlite" | "sys.db.Mysql" | "cs.db.AdoNet": continue;
 					}
 					Context.getModule(cl);
 				} else if( sys.FileSystem.isDirectory(p + "/" + file) )

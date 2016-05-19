@@ -51,7 +51,6 @@ class Boot extends flash.display.MovieClip {
 	public static var skip_constructor = false;
 
 	function start() {
-		#if (mt && !doc_gen) mt.flash.Init.check(); #end
 		#if dontWaitStage
 			init();
 		#else
@@ -209,6 +208,21 @@ class Boot extends flash.display.MovieClip {
 		return s;
 	}
 
+	static public function mapDynamic(d:Dynamic, f:Dynamic) {
+		if (Std.is(d, Array)) {
+			return untyped d["mapHX"](f);
+		} else {
+			return untyped d["map"](f);
+		}
+	}
+
+	static public function filterDynamic(d:Dynamic, f:Dynamic) {
+		if (Std.is(d, Array)) {
+			return untyped d["filterHX"](f);
+		} else {
+			return untyped d["filter"](f);
+		}
+	}
 
 	static function __init__() untyped {
 		var aproto = Array.prototype;

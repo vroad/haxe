@@ -48,7 +48,7 @@ class Log {
 				var pstr = infos == null ? "(null)" : infos.fileName + ":" + infos.lineNumber;
 				var str = flash.Boot.__string_rec(v, "");
 				if( infos != null && infos.customParams != null ) for( v in infos.customParams ) str += "," + flash.Boot.__string_rec(v, "");
-				untyped #if flash9 __global__["trace"] #else __trace__ #end(pstr+": "+str);
+				untyped __global__["trace"](pstr+": "+str);
 			#else
 				untyped flash.Boot.__trace(v,infos);
 			#end
@@ -94,6 +94,17 @@ class Log {
 			#elseif java
 			untyped __java__("java.lang.System.out.println(str)");
 			#end
+		#elseif (python)
+			var str:String = null;
+			if (infos != null) {
+				str = infos.fileName + ":" + Std.string(infos.lineNumber) + ": " + v;
+				if (infos.customParams != null) {
+					str += "," + infos.customParams.join(",");
+				}
+			} else {
+				str = v;
+			}
+			python.Lib.println(str);
 		#end
 	}
 
