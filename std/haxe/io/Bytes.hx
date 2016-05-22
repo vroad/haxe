@@ -77,7 +77,7 @@ class Bytes {
 	}
 
 	public function blit( pos : Int, src : Bytes, srcpos : Int, len : Int ) : Void {
-		#if !neko
+		#if (!neko && !cs)
 		if( pos < 0 || srcpos < 0 || len < 0 || pos + len > length || srcpos + len > src.length ) throw Error.OutsideBounds;
 		#end
 		#if neko
