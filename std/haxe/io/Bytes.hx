@@ -224,12 +224,9 @@ class Bytes {
 		return untyped __global__.__hxcpp_memory_get_double(b, pos);
 		#elseif cs
 		#if unsafe
-		var r:Float = 0;
-		untyped __cs__("fixed(byte* src = b)
-			{
-				r = *(double*)&src[pos];
+		untyped __cs__("fixed(byte* src = b) {");
+			return untyped __cs__("*(double*)&src[pos];
 			}");
-		return r;
 		#else
 		return cs.system.BitConverter.ToDouble(b, pos);
 		#end
@@ -257,12 +254,9 @@ class Bytes {
 		return untyped __global__.__hxcpp_memory_get_float(b, pos);
 		#elseif cs
 		#if unsafe
-		var r:Float = 0;
-		untyped __cs__("fixed(byte* src = b)
-			{
-				r = *(float*)&src[pos];
+		untyped __cs__("fixed(byte* src = b) {");
+			return untyped __cs__("*(float*)&src[pos];
 			}");
-		return r;
 		#else
 		return cs.system.BitConverter.ToSingle(b, pos);
 		#end
