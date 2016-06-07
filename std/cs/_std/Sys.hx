@@ -137,9 +137,10 @@ class Sys {
 		return Environment.TickCount / 1000;
 	}
 
-	public static inline function executablePath() : String
+	public static function executablePath() : String
 	{
-		return cs.system.reflection.Assembly.GetExecutingAssembly().GetName().CodeBase;
+		var uri = new cs.system.Uri(cs.system.reflection.Assembly.GetExecutingAssembly().GetName().CodeBase);
+		return uri.LocalPath;
 	}
 
 	public static function getChar( echo : Bool ) : Int
