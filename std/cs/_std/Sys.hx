@@ -139,8 +139,7 @@ class Sys {
 
 	public static function executablePath() : String
 	{
-		var uri = new cs.system.Uri(cs.system.reflection.Assembly.GetExecutingAssembly().GetName().CodeBase);
-		return uri.LocalPath;
+		return cs.system.reflection.Assembly.GetExecutingAssembly().Location;
 	}
 
 	public static function getChar( echo : Bool ) : Int
