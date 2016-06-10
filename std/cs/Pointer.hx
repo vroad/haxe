@@ -87,12 +87,6 @@ import cs.StdTypes.Int64;
 	// @:analyzer(no_simplification)
 	@:extern inline private function get_acc():PointerAccess<T> return (cast this : PointerAccess<T>);
 
-	// backwards compatibility
-	inline public function add(i:Int):Pointer<T>
-	{
-		return this + i;
-	}
-
 	@:arrayAccess public static function getIp<T>(p:Pointer<T>, at:Int):T;
 	@:arrayAccess public static function setIp<T>(p:Pointer<T>, at:Int, val:T):T;
 	@:arrayAccess public static function getp<T>(p:Pointer<T>, at:Int64):T;
