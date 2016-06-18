@@ -637,7 +637,7 @@ class TestCSharp extends Test
 			for (i in 0...10)
 		{
 			p[0] = i;
-			p = p.add(1);
+			p += 1;
 		}
 		});
 
