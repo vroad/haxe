@@ -22,14 +22,10 @@
 
 package lua;
 
-// Bit and Table must be imported for basic Haxe datatypes to work.
-import lua.Bit;
-import lua.Table;
-import lua.Thread;
-import haxe.io.Path;
-
 import haxe.Constraints.Function;
-using lua.PairTools;
+
+// TODO: seperate bit helper method from extern so operators can use it.
+import lua.Bit;
 
 @:dox(hide)
 class Boot {
@@ -117,10 +113,7 @@ class Boot {
 			case UserData:
 				return Lua.type(o) == "userdata";
 			case Array:
-				return Lua.type(o) == "table"
-					&& untyped o.__enum__ == null
-					&& lua.Lua.getmetatable(o) != null
-					&& lua.Lua.getmetatable(o).__index == untyped Array.prototype;
+				return isArray(o);
 			case Table:
 				return Lua.type(o) == "table";
 			case Dynamic:
@@ -139,6 +132,12 @@ class Boot {
 				}
 			}
 		}
+	}
+	static function isArray(o:Dynamic) : Bool {
+		return Lua.type(o) == "table"
+			&& untyped o.__enum__ == null
+			&& Lua.getmetatable(o) != null
+			&& Lua.getmetatable(o).__index == untyped Array.prototype;
 	}
 
 	/*
@@ -189,7 +188,7 @@ class Boot {
 	   Helper method to generate a string representation of a class
 	*/
 	static function printClassRec(c:Table<String,Dynamic>, result='', s : String) : String {
-		var f = lua.Boot.__string_rec;
+		var f = Boot.__string_rec;
 		untyped __lua__("for k,v in pairs(c) do if result ~= '' then result = result .. ', ' end result = result .. k .. ':' .. f(v, s.. '\t') end");
 		return result;
 	}
@@ -214,10 +213,11 @@ class Boot {
 			case "thread"  : "<thread>";
 			case "table": {
 			    if (o.__enum__ != null) printEnum(o,s);
-				else if (o.toString != null && !__instanceof(o,Array)) o.toString();
-				else if (__instanceof(o, Array)) {
+				else if (o.toString != null && !isArray(o)) o.toString();
+				else if (isArray(o)) {
+					var o2 : Array<Dynamic> = untyped o;
 					if (s.length > 5) "[...]"
-					else '[${[for (i in cast(o,Array<Dynamic>)) __string_rec(i,s+1)].join(",")}]';
+					else '[${[for (i in  o2) __string_rec(i,s+1)].join(",")}]';
 				} else if (s.length > 5){
 					"{...}";
 				}
@@ -226,16 +226,16 @@ class Boot {
 				else if (Lua.next(o) == null) "{}";
 				else {
 					var fields = Reflect.fields(o);
-					var buffer = new StringBuf();
+					var buffer:Table<Int,String> = Table.create();
 					var first = true;
-					buffer.add("{ ");
+					Table.insert(buffer,"{ ");
 					for (f in fields){
 						if (first) first = false;
-						else buffer.add(", ");
-						buffer.add('${s}${Std.string(f)} : ${untyped Std.string(o[f])}');
+						else Table.insert(buffer,", ");
+						Table.insert(buffer,'${s}${Std.string(f)} : ${untyped Std.string(o[f])}');
 					}
-					buffer.add(" }");
-					buffer.toString();
+					Table.insert(buffer, " }");
+					Table.concat(buffer, "");
 				}
 			};
 			default : {
@@ -371,7 +371,7 @@ class Boot {
 	*/
 	public static function tempFile() : String {
 		switch (Sys.systemName()){
-			case "Windows" : return Path.join([Os.getenv("TMP"), Os.tmpname()]);
+			case "Windows" : return haxe.io.Path.join([Os.getenv("TMP"), Os.tmpname()]);
 			default : return Os.tmpname();
 		}
 	}
