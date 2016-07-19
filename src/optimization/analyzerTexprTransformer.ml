@@ -195,8 +195,15 @@ let rec func ctx bb tf t p =
 		) (bb,[]) el in
 		bb,List.rev values
 	and bind_to_temp bb sequential e =
+		let is_probably_not_affected e e1 fa = match extract_field fa with
+			| Some {cf_kind = Method MethNormal} -> true
+			| _ -> match follow e.etype,follow e1.etype with
+				| TFun _,TInst _ -> false
+				| TFun _,_ -> true (* We don't know what's going on here, don't create a temp var (see #5082). *)
+				| _ -> false
+		in
 		let rec loop fl e = match e.eexpr with
-			| TField(e1,fa) when (match extract_field fa with Some {cf_kind = Method MethNormal} -> true | _ -> false) ->
+			| TField(e1,fa) when is_probably_not_affected e e1 fa ->
 				loop ((fun e' -> {e with eexpr = TField(e',fa)}) :: fl) e1
 			| _ ->
 				fl,e
@@ -661,7 +668,7 @@ and func ctx i =
 					false
 			in
 			begin match e1.eexpr,e2.eexpr with
-				| TLocal v1,TLocal v2 when v1 == v2 && is_valid_assign_op op ->
+				| TLocal v1,TLocal v2 when v1 == v2 && not v1.v_capture && is_valid_assign_op op ->
 					begin match op,e3.eexpr with
 						| OpAdd,TConst (TInt i32) when Int32.to_int i32 = 1 && target_handles_assign_ops ctx.com -> {e with eexpr = TUnop(Increment,Prefix,e1)}
 						| OpSub,TConst (TInt i32) when Int32.to_int i32 = 1 && target_handles_assign_ops ctx.com -> {e with eexpr = TUnop(Decrement,Prefix,e1)}
