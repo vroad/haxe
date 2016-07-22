@@ -118,6 +118,10 @@ let rec can_be_used_as_value com e =
 		| _ -> Type.iter loop e
 	in
 	try
+		begin match com.platform,e.eexpr with
+			| (Cs | Cpp | Java | Flash),TConst TNull -> raise Exit
+			| _ -> ()
+		end;
 		loop e;
 		true
 	with Exit ->
