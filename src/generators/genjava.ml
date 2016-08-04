@@ -337,8 +337,6 @@ struct
 			| TBlock bl -> is_final_return_block is_switch bl
 			| TSwitch (_, el_e_l, edef) ->
 				List.for_all (fun (_,e) -> is_final_return_expr e) el_e_l && Option.map_default is_final_return_expr false edef
-(*			 | TMatch (_, _, il_vl_e_l, edef) ->
-				List.for_all (fun (_,_,e) -> is_final_return_expr e)il_vl_e_l && Option.map_default is_final_return_expr false edef *)
 			| TIf (_,eif, Some eelse) ->
 				is_final_return_expr eif && is_final_return_expr eelse
 			| TFor (_,_,e) ->
@@ -945,7 +943,7 @@ let configure gen =
 					pack ^ "." ^ name
 			| _ -> raise Not_found
 		with Not_found -> match path with
-			| (ns,clname) -> path_s (change_ns ns, change_clname clname)
+			| (ns,clname) -> s_type_path (change_ns ns, change_clname clname)
 	in
 
 	let cl_cl = get_cl (get_type gen (["java";"lang"],"Class")) in
@@ -2133,7 +2131,7 @@ let configure gen =
 			PMap.find "EMPTY" empty_e.e_constrs
 		with Not_found -> gen.gcon.error "Required enum field EMPTY was not found" empty_e.e_pos; assert false
 	in
-	OverloadingConstructor.configure ~empty_ctor_type:(TEnum(empty_e, [])) ~empty_ctor_expr:({ eexpr=TField(empty_expr, FEnum(empty_e, empty_ef)); etype=TEnum(empty_e,[]); epos=null_pos; }) ~supports_ctor_inheritance:false gen;
+	OverloadingConstructor.configure ~empty_ctor_type:(TEnum(empty_e, [])) ~empty_ctor_expr:({ eexpr=TField(empty_expr, FEnum(empty_e, empty_ef)); etype=TEnum(empty_e,[]); epos=null_pos; }) gen;
 
 	let rcf_static_find = mk_static_field_access_infer (get_cl (get_type gen (["haxe";"lang"], "FieldLookup"))) "findHash" Ast.null_pos [] in
 	(*let rcf_static_lookup = mk_static_field_access_infer (get_cl (get_type gen (["haxe";"lang"], "FieldLookup"))) "lookupHash" Ast.null_pos [] in*)
@@ -2220,7 +2218,6 @@ let configure gen =
 				let t = gen.gclasses.nativearray_type hash_array.etype in
 				{ hash_array with eexpr = TCall(rcf_static_remove t, [hash_array; length; pos]); etype = gen.gcon.basic.tvoid }
 			)
-			false
 		in
 
 	ReflectionCFs.UniversalBaseClass.default_config gen (get_cl (get_type gen (["haxe";"lang"],"HxObject")) ) object_iface dynamic_object;
@@ -2420,7 +2417,7 @@ let configure gen =
 		{ ecall with eexpr = TCall(efield, elist) }
 	);
 
-	CastDetect.configure gen (CastDetect.default_implementation gen ~native_string_cast:false (Some (TEnum(empty_e, []))) false);
+	CastDetect.configure gen (CastDetect.default_implementation gen (Some (TEnum(empty_e, []))) false);
 
 	(*FollowAll.configure gen;*)
 
@@ -2565,7 +2562,7 @@ let generate con =
 
 	(try
 		configure gen
-	with | TypeNotFound path -> con.error ("Error. Module '" ^ (path_s path) ^ "' is required and was not included in build.")	Ast.null_pos);
+	with | TypeNotFound path -> con.error ("Error. Module '" ^ (s_type_path path) ^ "' is required and was not included in build.")	Ast.null_pos);
 	debug_mode := false
 
 (** Java lib *)
@@ -2614,7 +2611,7 @@ let jpath_to_hx (pack,name) = match pack, name with
 	| pack, name -> normalize_pack pack, jname_to_hx name
 
 let real_java_path ctx (pack,name) =
-	path_s (pack, name)
+	s_type_path (pack, name)
 
 let lookup_jclass com path =
 	let path = jpath_to_hx path in
@@ -2831,7 +2828,7 @@ let convert_java_enum ctx p pe =
 		List.iter (fun jsig ->
 			match convert_signature ctx p jsig with
 				| CTPath path ->
-					cff_meta := (Meta.Throws, [Ast.EConst (Ast.String (path_s (path.tpackage,path.tname))), p],p) :: !cff_meta
+					cff_meta := (Meta.Throws, [Ast.EConst (Ast.String (s_type_path (path.tpackage,path.tname))), p],p) :: !cff_meta
 				| _ -> ()
 		) field.jf_throws;
 
@@ -3132,7 +3129,7 @@ let jclass_with_params com cls params = try
 			cinterfaces = List.map (japply_params jparams) cls.cinterfaces;
 		}
 	with Invalid_argument("List.map2") ->
-		if com.verbose then prerr_endline ("Differing parameters for class: " ^ path_s cls.cpath);
+		if com.verbose then prerr_endline ("Differing parameters for class: " ^ s_type_path cls.cpath);
 		cls
 
 let is_object = function | TObject( (["java";"lang"], "Object"), [] ) -> true | _ -> false
@@ -3573,7 +3570,7 @@ let add_java_lib com file std =
 						if is_disallowed_inner then
 							None
 						else begin
-							if com.verbose then print_endline ("Parsed Java class " ^ (path_s cls.cpath));
+							if com.verbose then print_endline ("Parsed Java class " ^ (s_type_path cls.cpath));
 							let old_types = ctx.jtparams in
 							ctx.jtparams <- cls.ctypes :: ctx.jtparams;
 

@@ -97,6 +97,7 @@ type display_mode =
 	| DMPosition
 	| DMToplevel
 	| DMResolve of string
+	| DMPackage
 	| DMType
 	| DMModuleSymbols
 	| DMDiagnostics
@@ -586,7 +587,7 @@ module MetaInfo = struct
 		| UnifyMinDynamic -> ":unifyMinDynamic",("Allows a collection of types to unify to Dynamic",[UsedOn TClassField])
 		| Unreflective -> ":unreflective",("",[Platform Cpp])
 		| Unsafe -> ":unsafe",("Declares a class, or a method with the C#'s 'unsafe' flag",[Platform Cs; UsedOnEither [TClass;TClassField]])
-		| Usage -> ":usage",("?",[])
+		| Usage -> ":usage",("Internal metadata used to mark a symbol for which usage request was invoked",[Internal])
 		| Used -> ":used",("Internally used by DCE to mark a class or field as used",[Internal])
 		| UserVariable -> ":userVariable",("Internally used to mark variables that come from user code",[Internal])
 		| Value -> ":value",("Used to store default values for fields and function arguments",[UsedOn TClassField])
@@ -1051,6 +1052,29 @@ let add_trailing_slash p =
 	else match p.[l-1] with
 		| '\\' | '/' -> p
 		| _ -> p ^ "/"
+
+let path_regex = Str.regexp "[/\\]+"
+let normalize_path path =
+	let rec normalize acc m =
+		match m with
+		| [] ->
+			List.rev acc
+		| Str.Text "." :: Str.Delim _ :: tl when acc = [] ->
+			normalize [] tl
+		| Str.Text ".." :: Str.Delim _ :: tl ->
+			(match acc with
+			| [] -> raise Exit
+			| _ :: acc -> normalize acc tl)
+		| Str.Text t :: Str.Delim _ :: tl ->
+			normalize (t :: acc) tl
+		| Str.Delim _ :: tl ->
+			normalize ("" :: acc) tl
+		| Str.Text t :: [] ->
+			List.rev (t :: acc)
+		| Str.Text _ :: Str.Text  _ :: _ ->
+			assert false
+	in
+	String.concat "/" (normalize [] (Str.full_split path_regex path))
 
 let rec mkdir_recursive base dir_list =
 	match dir_list with
