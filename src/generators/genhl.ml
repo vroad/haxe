@@ -66,7 +66,7 @@ and class_proto = {
 and enum_proto = {
 	ename : string;
 	eid : int;
-	mutable eglobal : int;
+	mutable eglobal : int option;
 	mutable efields : (string * string index * ttype array) array;
 }
 
@@ -318,7 +318,7 @@ let null_proto =
 
 let all_types =
 	let vp = { vfields = [||]; vindex = PMap.empty } in
-	let ep = { ename = ""; eid = 0; eglobal = 0; efields = [||] } in
+	let ep = { ename = ""; eid = 0; eglobal = None; efields = [||] } in
 	[HVoid;HI8;HI16;HI32;HF32;HF64;HBool;HBytes;HDyn;HFun ([],HVoid);HObj null_proto;HArray;HType;HRef HVoid;HVirtual vp;HDynObj;HAbstract ("",0);HEnum ep;HNull HVoid]
 
 let is_number = function
@@ -963,7 +963,7 @@ and enum_type ?(tref=None) ctx e =
 	with Not_found ->
 		let ename = s_type_path e.e_path in
 		let et = {
-			eglobal = 0;
+			eglobal = None;
 			ename = ename;
 			eid = alloc_string ctx ename;
 			efields = [||];
@@ -982,7 +982,7 @@ and enum_type ?(tref=None) ctx e =
 			(f.ef_name, alloc_string ctx f.ef_name, args)
 		) e.e_names);
 		let ct = enum_class ctx e in
-		et.eglobal <- alloc_global ctx (match ct with HObj o -> o.pname | _ -> assert false) ct;
+		et.eglobal <- Some (alloc_global ctx (match ct with HObj o -> o.pname | _ -> assert false) ct);
 		t
 
 and enum_class ctx e =
@@ -2684,7 +2684,7 @@ and build_capture_vars ctx f =
 		c_map = !indexes;
 		c_vars = cvars;
 		c_type = HEnum {
-			eglobal = 0;
+			eglobal = None;
 			ename = "";
 			eid = 0;
 			efields = [|"",0,Array.map (fun v -> to_type ctx v.v_type) cvars|];
@@ -4829,7 +4829,7 @@ let interp code =
 				| _ -> assert false)
 			| "sys_exit" ->
 				(function
-				| [VInt code] -> VUndef
+				| [VInt code] -> exit (Int32.to_int code)
 				| _ -> assert false)
 			| "sys_utf8_path" ->
 				(function
@@ -4856,7 +4856,7 @@ let interp code =
 				| [VType t] ->
 					(match t with
 					| HObj c -> (match c.pclassglobal with None -> VNull | Some g -> globals.(g))
-					| HEnum e -> globals.(e.eglobal)
+					| HEnum e -> (match e.eglobal with None -> VNull | Some g -> globals.(g))
 					| _ -> VNull)
 				| _ -> assert false)
 			| "type_name" ->
@@ -5489,6 +5489,9 @@ let write_code ch code =
 			(match p.psuper with
 			| None -> write_index (-1)
 			| Some t -> write_type (HObj t));
+			(match p.pclassglobal with
+			| None -> write_index 0
+			| Some g -> write_index (g + 1));
 			write_index (Array.length p.pfields);
 			write_index (Array.length p.pproto);
 			Array.iter (fun (_,n,t) -> write_index n; write_type t) p.pfields;
@@ -5512,6 +5515,9 @@ let write_code ch code =
 		| HEnum e ->
 			byte 17;
 			write_index e.eid;
+			(match e.eglobal with
+			| None -> write_index 0
+			| Some g -> write_index (g + 1));
 			write_index (Array.length e.efields);
 			Array.iter (fun (_,nid,tl) ->
 				write_index nid;
@@ -5696,12 +5702,19 @@ let dump pr code =
 	pr (string_of_int (Array.length code.functions) ^ " functions");
 	Array.iter (fun f ->
 		pr (Printf.sprintf "	fun@%d(%Xh) %s" f.findex f.findex (tstr f.ftype));
+		let fid, _ = f.debug.(0) in
+		let cur_fid = ref fid in
 		pr (Printf.sprintf "	; %s (%s)" (debug_infos f.debug.(0)) (fundecl_name f));
 		Array.iteri (fun i r ->
 			pr ("		r" ^ string_of_int i ^ " " ^ tstr r);
 		) f.regs;
 		Array.iteri (fun i o ->
-			pr (Printf.sprintf "		.%-5d @%X %s" (snd f.debug.(i)) i (ostr fstr o))
+			let fid, line = f.debug.(i) in
+			if fid <> !cur_fid then begin
+				cur_fid := fid;
+				pr (Printf.sprintf "	; %s" (debug_infos (fid,line)));
+			end;
+			pr (Printf.sprintf "		.%-5d @%X %s" line i (ostr fstr o))
 		) f.code;
 	) code.functions;
 	let protos = Hashtbl.fold (fun _ p acc -> p :: acc) all_protos [] in
@@ -6080,7 +6093,8 @@ let write_c version file (code:code) =
 					sexpr "static int %s[] = {%s}" name (String.concat "," (List.map (fun _ -> "0") (Array.to_list tl)));
 					name
 				in
-				sprintf "{(const uchar*)string$%d, %d, %s, %s, %s}" nid (Array.length tl) tval size offsets
+				let has_ptr = List.exists is_gc_ptr (Array.to_list tl) in
+				sprintf "{(const uchar*)string$%d, %d, %s, %s, %s, %s}" nid (Array.length tl) tval size (if has_ptr then "true" else "false") offsets
 			in
 			sexpr "static hl_enum_construct %s[] = {%s}" constr_name (String.concat "," (Array.to_list (Array.mapi constr_value e.efields)));
 			let efields = [
@@ -6344,21 +6358,18 @@ let write_c version file (code:code) =
 					let meth = cast_fun meth (HDyn :: List.map rtype args) rt in
 					sline "if( hl_vfields(%s)[%d] ) %s%s(%s); else {" (reg o) fid (rassign r rt) meth (String.concat "," ((reg o ^ "->value") :: List.map reg args));
 					block();
-					if args <> [] then sexpr "vdynamic *args[] = {%s}" (String.concat "," (List.map (fun p ->
-						match rtype p with
-						| HDyn ->
+					if args <> [] then sexpr "void *args[] = {%s}" (String.concat "," (List.map (fun p ->
+						let t = rtype p in
+						if is_ptr t then
 							reg p
-						| t ->
-							if is_dynamic t then
-								sprintf "(vdynamic*)%s" (reg p)
-							else
-								sprintf "hl_make_dyn(&%s,%s)" (reg p) (type_value t)
+						else
+							sprintf "&%s" (reg p)
 					) args));
 					let rt = rtype r in
-					let ret = if rt = HVoid then "" else if is_dynamic rt then sprintf "%s = (%s)" (reg r) (ctype rt) else "vdynamic *ret = " in
-					let fname, fid, _ = vp.vfields.(fid) in
-					sexpr "%shlc_dyn_call_obj(%s->value,%ld/*%s*/,%s,%d)" ret (reg o) (hash fid) fname (if args = [] then "NULL" else "args") (List.length args);
-					if rt <> HVoid && not (is_dynamic rt) then sexpr "%s = (%s)hl_dyn_cast%s(&ret,&hlt_dyn%s)" (reg r) (ctype rt) (dyn_prefix rt) (type_value_opt rt);
+					let ret = if rt = HVoid then "" else if is_ptr rt then sprintf "%s = (%s)" (reg r) (ctype rt) else begin sexpr "vdynamic ret"; ""; end in
+					let fname, fid, ft = vp.vfields.(fid) in
+					sexpr "%shl_dyn_call_obj(%s->value,%s,%ld/*%s*/,%s,%s)" ret (reg o) (type_value ft) (hash fid) fname (if args = [] then "NULL" else "args") (if is_ptr rt || rt == HVoid then "NULL" else "&ret");
+					if rt <> HVoid && not (is_ptr rt) then sexpr "%s = (%s)ret.v.%s" (reg r) (ctype rt) (dyn_prefix rt);
 					unblock();
 					sline "}"
 				| _ ->
@@ -6823,7 +6834,7 @@ let write_c version file (code:code) =
 			sexpr "type$%d.tparam = %s" i (type_value t)
 		| HEnum e ->
 			sexpr "type$%d.tenum = &enum$%d" i i;
-			if e.eglobal <> 0 then sexpr "enum$%d.global_value = (void**)&global$%d" i e.eglobal;
+			(match e.eglobal with None -> () | Some g -> sexpr "enum$%d.global_value = (void**)&global$%d" i g);
 			Array.iteri (fun cid (_,_,tl) ->
 				if Array.length tl > 0 then begin
 					line "{";
