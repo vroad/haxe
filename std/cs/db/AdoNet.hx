@@ -23,6 +23,12 @@
 import sys.db.*;
 import cs.system.data.*;
 
+typedef IDataReader = Dynamic;
+typedef IDbConnection = Dynamic;
+typedef IDbDataParameter = Dynamic;
+typedef IDbCommand = Dynamic;
+typedef IDbTransaction = Dynamic;
+
 class AdoNet
 {
 	public static function create(cnx:IDbConnection, dbName:String):Connection
@@ -102,7 +108,7 @@ private class AdoConnection implements Connection
 			case _:
 				'SELECT @@IDENTITY';
 		}
-		ret.CommandType = CommandType.Text;
+		ret.CommandType = untyped __cs__("System.Data.SqlClient.SqlCommand.CommandType.Text");
 		var r = cast ret.ExecuteScalar();
 		ret.Dispose();
 

@@ -20,10 +20,12 @@
  * DEALINGS IN THE SOFTWARE.
  */
  package sys.db;
+ 
+typedef IDbConnection = Dynamic;
 
 class Sqlite
 {
-	static var type:Class<cs.system.data.IDbConnection>;
+	static var type:Class<IDbConnection>;
 	/**
 		Opens a new SQLite connection on the specified path.
 		Note that you will need a SQLite ADO.NET Provider (see http://www.mono-project.com/docs/database-access/providers/sqlite/).
