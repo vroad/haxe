@@ -22,9 +22,10 @@
 /**
 	This class defines mathematical functions and constants.
 
-	@see http://haxe.org/manual/std-math.html
+	@see https://haxe.org/manual/std-math.html
 **/
 #if cpp @:include("hxMath.h") #end
+@:pure
 extern class Math
 {
 	/**

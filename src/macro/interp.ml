@@ -17,6 +17,7 @@
 	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *)
 
+open Globals
 open Common
 open Nast
 open Unix
@@ -49,7 +50,7 @@ and vabstract =
 	| AHash of (value, value) Hashtbl.t
 	| ARandom of Random.State.t ref
 	| ABuffer of Buffer.t
-	| APos of Ast.pos
+	| APos of Globals.pos
 	| AFRead of (in_channel * bool ref)
 	| AFWrite of out_channel
 	| AReg of regexp
@@ -94,7 +95,7 @@ type cmp =
 	| CUndef
 
 type extern_api = {
-	pos : Ast.pos;
+	pos : Globals.pos;
 	get_com : unit -> Common.context;
 	get_type : string -> Type.t option;
 	get_module : string -> Type.t list;
@@ -102,9 +103,9 @@ type extern_api = {
 	on_generate : (Type.t list -> unit) -> unit;
 	after_generate : (unit -> unit) -> unit;
 	on_type_not_found : (string -> value) -> unit;
-	parse_string : string -> Ast.pos -> bool -> Ast.expr;
+	parse_string : string -> Globals.pos -> bool -> Ast.expr;
 	type_expr : Ast.expr -> Type.texpr;
-	resolve_type  : Ast.complex_type -> Ast.pos -> t;
+	resolve_type  : Ast.complex_type -> Globals.pos -> t;
 	type_macro_expr : Ast.expr -> Type.texpr;
 	store_typed_expr : Type.texpr -> Ast.expr;
 	allow_package : string -> unit;
@@ -119,17 +120,18 @@ type extern_api = {
 	get_local_using : unit -> tclass list;
 	get_local_vars : unit -> (string, Type.tvar) PMap.t;
 	get_build_fields : unit -> value;
-	get_pattern_locals : Ast.expr -> Type.t -> (string,Type.tvar * Ast.pos) PMap.t;
+	get_pattern_locals : Ast.expr -> Type.t -> (string,Type.tvar * Globals.pos) PMap.t;
 	define_type : value -> unit;
-	define_module : string -> value list -> ((string * Ast.pos) list * Ast.import_mode) list -> Ast.type_path list -> unit;
+	define_module : string -> value list -> ((string * Globals.pos) list * Ast.import_mode) list -> Ast.type_path list -> unit;
 	module_dependency : string -> string -> bool -> unit;
 	current_module : unit -> module_def;
 	mutable current_macro_module : unit -> module_def;
 	delayed_macro : int -> (unit -> (unit -> value));
 	use_cache : unit -> bool;
-	format_string : string -> Ast.pos -> Ast.expr;
-	cast_or_unify : Type.t -> texpr -> Ast.pos -> Type.texpr;
+	format_string : string -> Globals.pos -> Ast.expr;
+	cast_or_unify : Type.t -> texpr -> Globals.pos -> Type.texpr;
 	add_global_metadata : string -> string -> (bool * bool * bool) -> unit;
+	add_module_check_policy : string list -> int list -> bool -> int -> unit;
 }
 
 type callstack = {
@@ -140,7 +142,7 @@ type callstack = {
 }
 
 type context = {
-	gen : Genneko.context;
+	mutable gen : Genneko.context;
 	types : (Type.path,int) Hashtbl.t;
 	prototypes : (string list, vobject) Hashtbl.t;
 	fields_cache : (int,string) Hashtbl.t;
@@ -183,7 +185,7 @@ type access =
 exception Runtime of value
 exception Builtin_error
 
-exception Error of string * Ast.pos list
+exception Error of string * Globals.pos list
 
 exception Abort
 exception Continue
@@ -222,7 +224,7 @@ let dec_array (l:value) : value list = (!dec_array_ref) l
 
 let decode_complex_type (v:value) : Ast.type_hint = (!decode_complex_type_ref) v
 let encode_complex_type (t:Ast.type_hint) : value = (!encode_complex_type_ref) t
-let decode_pos (v:value) : Ast.pos = (!decode_pos_ref) v
+let decode_pos (v:value) : Globals.pos = (!decode_pos_ref) v
 let encode_type (t:Type.t) : value = (!encode_type_ref) t
 let decode_type (v:value) : Type.t = (!decode_type_ref) v
 let encode_expr (e:Ast.expr) : value = (!encode_expr_ref) e
@@ -244,9 +246,9 @@ let best_int i = if need_32_bits i then VInt32 i else VInt (Int32.to_int i)
 let make_pos p =
 	let low = p.pline land 0xFFFFF in
 	{
-		Ast.pfile = p.psource;
-		Ast.pmin = low;
-		Ast.pmax = low + (p.pline lsr 20);
+		Globals.pfile = p.psource;
+		Globals.pmin = low;
+		Globals.pmax = low + (p.pline lsr 20);
 	}
 
 let warn ctx msg p =
@@ -283,7 +285,7 @@ let constants =
 	"constructs";"names";"superClass";"interfaces";"fields";"statics";"constructor";"init";"t";
 	"gid";"uid";"atime";"mtime";"ctime";"dev";"ino";"nlink";"rdev";"size";"mode";"pos";"len";
 	"binops";"unops";"from";"to";"array";"op";"isPostfix";"impl";"resolve";
-	"id";"capture";"extra";"v";"ids";"vars";"en";"overrides";"status";"overloads";"path"];
+	"id";"capture";"extra";"v";"ids";"vars";"en";"overrides";"status";"overloads";"path";"namePos"];
 	h
 
 let h_get = hash "__get" and h_set = hash "__set"
@@ -299,6 +301,19 @@ and h_class = hash "__class__"
 
 let exc v =
 	raise (Runtime v)
+
+let s_value_kind = function
+	| VNull -> "VNull"
+	| VBool _ -> "VBool"
+	| VInt _ -> "VInt"
+	| VFloat _ -> "VFloat"
+	| VString _ -> "VString"
+	| VObject _ -> "VObject"
+	| VArray _ -> "VArray"
+	| VAbstract _ -> "VAbstract"
+	| VFunction _ -> "VFunction"
+	| VClosure _ -> "VClosure"
+	| VInt32 _ -> "VInt32"
 
 let hash_field ctx f =
 	let h = hash f in
@@ -472,7 +487,7 @@ let catch_errors ctx ?(final=(fun() -> ())) f =
 			(match get_field o (hash "message"), get_field o (hash "pos") with
 			| VObject msg, VAbstract (APos pos) ->
 				(match get_field msg h_s with
-				| VString msg -> raise (Typecore.Error (Typecore.Custom msg,pos))
+				| VString msg -> raise (Error.Error (Error.Custom msg,pos))
 				| _ -> ());
 			| _ -> ());
 		| _ -> ());
@@ -511,8 +526,7 @@ let rec dlopen dls =
 		None
 
 let neko =
-	let is_win = Sys.os_type = "Win32" || Sys.os_type = "Cygwin" in
-	match dlopen (if is_win then
+	match dlopen (if Globals.is_windows then
 		["neko.dll"]
 	else
 		(*
@@ -789,7 +803,7 @@ let builtins =
 	let build_stack sl =
 		let make p =
 			let p = make_pos p in
-			VArray [|VString p.Ast.pfile;VInt (Lexer.get_error_line p)|]
+			VArray [|VString p.Globals.pfile;VInt (Lexer.get_error_line p)|]
 		in
 		VArray (Array.of_list (List.map make sl))
 	in
@@ -1456,8 +1470,8 @@ let std_lib =
 					| "rb" -> AFRead (open_in_gen [Open_rdonly;Open_binary] 0 f,ref false)
 					| "w" -> AFWrite (open_out_gen [Open_wronly;Open_creat;Open_trunc] perms f)
 					| "wb" -> AFWrite (open_out_gen [Open_wronly;Open_creat;Open_trunc;Open_binary] perms f)
-					| "a" -> AFWrite (open_out_gen [Open_append] perms f)
-					| "ab" -> AFWrite (open_out_gen [Open_append;Open_binary] perms f)
+					| "a" -> AFWrite (open_out_gen [Open_append;Open_creat] perms f)
+					| "ab" -> AFWrite (open_out_gen [Open_append;Open_creat;Open_binary] perms f)
 					| _ -> error())
 			| _ -> error()
 		);
@@ -1705,7 +1719,7 @@ let std_lib =
 			VInt (((get_ctx()).curapi.get_com()).run_command (vstring cmd))
 		);
 		"sys_exit", Fun1 (fun code ->
-			if (get_ctx()).curapi.use_cache() then raise (Typecore.Fatal_error ("",Ast.null_pos));
+			if (get_ctx()).curapi.use_cache() then raise (Error.Fatal_error ("",Globals.null_pos));
 			raise (Sys_exit(vint code));
 		);
 		"sys_exists", Fun1 (fun file ->
@@ -1781,9 +1795,9 @@ let std_lib =
 			match com.main_class with
 			| None -> error()
 			| Some p ->
-				match ctx.curapi.get_type (Ast.s_type_path p) with
+				match ctx.curapi.get_type (s_type_path p) with
 				| Some(TInst (c, _)) ->
-					VString (Extc.get_full_path c.cl_pos.Ast.pfile)
+					VString (Extc.get_full_path c.cl_pos.Globals.pfile)
 				| _ -> error();
 		);
 		"sys_env", Fun0 (fun() ->
@@ -2200,7 +2214,7 @@ let macro_lib =
 		"fatal_error", Fun2 (fun msg p ->
 			match msg, p with
 			| VString s, VAbstract (APos p) ->
-				raise (Typecore.Fatal_error (s,p))
+				raise (Error.Fatal_error (s,p))
 			| _ -> error()
 		);
 		"warning", Fun2 (fun msg p ->
@@ -2326,9 +2340,9 @@ let macro_lib =
 					| VFloat f -> haxe_float f p
 					| VAbstract (APos p) ->
 						(Ast.EObjectDecl (
-							("fileName" , (Ast.EConst (Ast.String p.Ast.pfile) , p)) ::
-							("lineNumber" , (Ast.EConst (Ast.Int (string_of_int (Lexer.get_error_line p))),p)) ::
-							("className" , (Ast.EConst (Ast.String ("")),p)) ::
+							(("fileName",Globals.null_pos) , (Ast.EConst (Ast.String p.Globals.pfile) , p)) ::
+							(("lineNumber",Globals.null_pos) , (Ast.EConst (Ast.Int (string_of_int (Lexer.get_error_line p))),p)) ::
+							(("className",Globals.null_pos) , (Ast.EConst (Ast.String ("")),p)) ::
 							[]
 						), p)
 					| VString _ | VArray _ | VAbstract _ | VFunction _ | VClosure _ as v -> error v
@@ -2339,7 +2353,7 @@ let macro_lib =
 							| Some (VAbstract (ATDecl t)) ->
 								make_path t
 							| _ ->
-								let fields = List.fold_left (fun acc (fid,v) -> (field_name ctx fid, loop v) :: acc) [] (Array.to_list o.ofields) in
+								let fields = List.fold_left (fun acc (fid,v) -> ((field_name ctx fid,Globals.null_pos), loop v) :: acc) [] (Array.to_list o.ofields) in
 								(Ast.EObjectDecl fields, p))
 						| Some proto ->
 							match get_field_opt proto h_enum, get_field_opt o h_a, get_field_opt o h_s, get_field_opt o h_length with
@@ -2372,7 +2386,7 @@ let macro_lib =
 				try
 					Hashtbl.find hfiles f
 				with Not_found ->
-					let ff = Common.unique_full_path f in
+					let ff = Path.unique_full_path f in
 					Hashtbl.add hfiles f ff;
 					ff
 			in
@@ -2424,7 +2438,7 @@ let macro_lib =
 					do_cache v v2;
 					rl := List.map loop vl;
 					v2
-				| VAbstract (APos p) -> VAbstract (APos { p with Ast.pfile = get_file p.Ast.pfile })
+				| VAbstract (APos p) -> VAbstract (APos { p with Globals.pfile = get_file p.Globals.pfile })
 				| VAbstract (ACacheRef v) -> v
 				| VAbstract (AHash h) ->
 					let h2 = Hashtbl.create 0 in
@@ -2450,9 +2464,9 @@ let macro_lib =
 			with Exit -> VNull
 		);
 		"unify", Fun2 (fun t1 t2 ->
-			let e1 = mk (TObjectDecl []) (decode_type t1) Ast.null_pos in
-			try ignore(((get_ctx()).curapi.cast_or_unify) (decode_type t2) e1 Ast.null_pos); VBool true
-			with Typecore.Error (Typecore.Unify _,_) -> VBool false
+			let e1 = mk (TObjectDecl []) (decode_type t1) Globals.null_pos in
+			try ignore(((get_ctx()).curapi.cast_or_unify) (decode_type t2) e1 Globals.null_pos); VBool true
+			with Error.Error (Error.Unify _,_) -> VBool false
 		);
 		"typeof", Fun1 (fun v ->
 			encode_type ((get_ctx()).curapi.type_expr (decode_expr v)).etype
@@ -2522,12 +2536,12 @@ let macro_lib =
 		);
 		"get_pos_infos", Fun1 (fun p ->
 			match p with
-			| VAbstract (APos p) -> VObject (obj (hash_field (get_ctx())) ["min",VInt p.Ast.pmin;"max",VInt p.Ast.pmax;"file",VString p.Ast.pfile])
+			| VAbstract (APos p) -> VObject (obj (hash_field (get_ctx())) ["min",VInt p.Globals.pmin;"max",VInt p.Globals.pmax;"file",VString p.Globals.pfile])
 			| _ -> error()
 		);
 		"make_pos", Fun3 (fun min max file ->
 			match min, max, file with
-			| VInt min, VInt max, VString file -> VAbstract (APos { Ast.pmin = min; Ast.pmax = max; Ast.pfile = file })
+			| VInt min, VInt max, VString file -> VAbstract (APos { Globals.pmin = min; Globals.pmax = max; Globals.pfile = file })
 			| _ -> error()
 		);
 		"add_resource", Fun2 (fun name data ->
@@ -2548,7 +2562,7 @@ let macro_lib =
 		);
 		"local_module", Fun0 (fun() ->
 			let m = (get_ctx()).curapi.current_module() in
-			VString (Ast.s_type_path m.m_path);
+			VString (s_type_path m.m_path);
 		);
 		"local_type", Fun0 (fun() ->
 			match (get_ctx()).curapi.get_local_type() with
@@ -2596,7 +2610,7 @@ let macro_lib =
 					(match !r with
 					| None -> t
 					| Some t -> t)
-				| TAbstract (a,tl) when not (Ast.Meta.has Ast.Meta.CoreType a.a_meta) ->
+				| TAbstract (a,tl) when not (Meta.has Meta.CoreType a.a_meta) ->
 					Abstract.get_underlying_type a tl
 				| TAbstract _ | TEnum _ | TInst _ | TFun _ | TAnon _ | TDynamic _ ->
 					t
@@ -2643,7 +2657,7 @@ let macro_lib =
 			match v with
 			| VString cp ->
 				let com = ccom() in
-				let cp = Common.add_trailing_slash cp in
+				let cp = Path.add_trailing_slash cp in
 				com.class_path <- cp :: com.class_path;
 				(match com.get_macros() with
 					| Some(mcom) ->
@@ -2720,10 +2734,10 @@ let macro_lib =
 		);
 		"get_display_pos", Fun0 (fun() ->
 			let p = !Parser.resume_display in
-			if p = Ast.null_pos then
+			if p = Globals.null_pos then
 				VNull
 			else
-				VObject (obj (hash_field (get_ctx())) ["file",VString p.Ast.pfile;"pos",VInt p.Ast.pmin])
+				VObject (obj (hash_field (get_ctx())) ["file",VString p.Globals.pfile;"pos",VInt p.Globals.pmin])
 		);
 		"pattern_locals", Fun2 (fun e t ->
 			let loc = (get_ctx()).curapi.get_pattern_locals (decode_expr e) (decode_type t) in
@@ -2778,6 +2792,32 @@ let macro_lib =
 						failwith ("unable to find file for inclusion: " ^ file)
 				in
 				(ccom()).include_files <- (file, position) :: (ccom()).include_files;
+				VNull
+			| _ ->
+				error()
+		);
+		(* Compilation server *)
+		"server_add_module_check_policy", Fun4 (fun filter policy recursive context_options ->
+			match filter,policy,recursive,context_options with
+			| VArray vl1, VArray vl2, VBool b, VInt i ->
+				let sl = Array.fold_left (fun acc v -> match v with VString s -> (s :: acc) | _ -> error()) [] vl1 in
+				let il = Array.fold_left (fun acc v -> match v with VInt i -> (i :: acc) | _ -> error()) [] vl2 in
+				(get_ctx()).curapi.add_module_check_policy sl il b i;
+				VNull
+			| _ ->
+				error()
+		);
+		"server_invalidate_files", Fun1 (fun a -> match a with
+			| VArray vl ->
+				let cs = match CompilationServer.get() with Some cs -> cs | None -> failwith "compilation server not running" in
+				Array.iter (fun v -> match v with
+					| VString s ->
+						let s = Path.unique_full_path s in
+						CompilationServer.taint_modules cs s;
+						CompilationServer.remove_files cs s;
+					| _ ->
+						error()
+				) vl;
 				VNull
 			| _ ->
 				error()
@@ -2878,7 +2918,7 @@ and eval ctx (e,p) =
 			| _ -> throw ctx p ("Invalid field access : " ^ f)
 		)
 	| ECall ((EConst (Builtin "mk_pos"),_),[(ECall (_,[EConst (String file),_]),_);(EConst (Int min),_);(EConst (Int max),_)]) ->
-		let pos = VAbstract (APos { Ast.pfile = file; Ast.pmin = min; Ast.pmax = max }) in
+		let pos = VAbstract (APos { Globals.pfile = file; Globals.pmin = min; Globals.pmax = max }) in
 		(fun() -> pos)
 	| ECall ((EConst (Builtin "typewrap"),_),[t]) ->
 		(fun() -> VAbstract (ATDecl (Obj.magic t)))
@@ -3612,6 +3652,11 @@ let rec compare ctx a b =
 let select ctx =
 	get_ctx_ref := (fun() -> ctx)
 
+let value_match_failure s expected actual =
+	let sl = String.concat ", " in
+	let slv l = sl (List.map s_value_kind l) in
+	Printf.sprintf "%s (expected [%s], got [%s])" s (sl expected) (slv actual)
+
 let load_prim ctx f n =
 	match f, n with
 	| VString f, VInt n ->
@@ -3629,7 +3674,7 @@ let load_prim ctx f n =
 		with Not_found ->
 			VFunction (FunVar (fun _ -> exc (VString ("Primitive not found " ^ f ^ ":" ^ string_of_int n)))))
 	| _ ->
-		exc (VString "Invalid call")
+		exc (VString (value_match_failure "Invalid call" ["VString";"VInt"] [f;n]))
 
 let create com api =
 	let loader = obj hash [
@@ -3678,7 +3723,23 @@ let create com api =
 	List.iter (fun e -> ignore((eval ctx e)())) (Genneko.header());
 	ctx
 
-
+let clear ctx com =
+	Hashtbl.clear ctx.types;
+	Hashtbl.clear ctx.prototypes;
+	ctx.gen <- Genneko.new_context com 2 true;
+	ctx.locals_map <- PMap.empty;
+	ctx.locals_count <- 0;
+	ctx.locals_barrier <- 0;
+	ctx.locals_env <- DynArray.create();
+	ctx.globals <- PMap.empty;
+	ctx.callstack <- [];
+	ctx.callsize <- 0;
+	ctx.stack <- DynArray.create();
+	ctx.exc <- [];
+	ctx.vthis <- VNull;
+	ctx.venv <- [||];
+	select ctx;
+	List.iter (fun e -> ignore((eval ctx e)())) (Genneko.header())
 
 let do_reuse ctx api =
 	ctx.is_reused <- false;
@@ -3705,7 +3766,7 @@ let can_reuse ctx types =
 
 let add_types ctx types ready =
 	let types = List.filter (fun t -> match t with
-		| TAbstractDecl a when not (Ast.Meta.has Ast.Meta.CoreType a.a_meta) ->
+		| TAbstractDecl a when not (Meta.has Meta.CoreType a.a_meta) ->
 			(* A @:native on an abstract causes the implementation class and the abstract
 			   to have the same path. Let's skip all abstracts so this doesn't matter. *)
 			false
@@ -3742,7 +3803,9 @@ let call_path ctx path f vl api =
 		| VObject o ->
 			let f = get_field o (hash f) in
 			call ctx (VObject o) f vl p
-		| _ -> assert false
+		| v ->
+			print_endline (value_match_failure ("Unexpected value for " ^ (String.concat "." path)) ["VObject"] [v]);
+			assert false
 	)
 
 (* ---------------------------------------------------------------------- *)
@@ -3960,7 +4023,7 @@ and encode_access a =
 
 and encode_meta_entry (m,ml,p) =
 	enc_obj [
-		"name", enc_string (fst (MetaInfo.to_string m));
+		"name", enc_string (Meta.to_string m);
 		"params", enc_array (List.map encode_expr ml);
 		"pos", encode_pos p;
 	]
@@ -3972,7 +4035,7 @@ and encode_field (f:class_field) =
 	let tag, pl = match f.cff_kind with
 		| FVar (t,e) -> 0, [null encode_ctype t; null encode_expr e]
 		| FFun f -> 1, [encode_fun f]
-		| FProp (get,set, t, e) -> 2, [enc_string get; enc_string set; null encode_ctype t; null encode_expr e]
+		| FProp (get,set, t, e) -> 2, [encode_placed_name get; encode_placed_name set; null encode_ctype t; null encode_expr e]
 	in
 	enc_obj [
 		"name",encode_placed_name f.cff_name;
@@ -3987,7 +4050,7 @@ and encode_field (f:class_field) =
 and encode_ctype t =
 	let tag, pl = match fst t with
 	| CTPath p ->
-		0, [encode_path (p,null_pos)]
+		0, [encode_path (p,Globals.null_pos)]
 	| CTFunction (pl,r) ->
 		1, [enc_array (List.map encode_ctype pl);encode_ctype r]
 	| CTAnonymous fl ->
@@ -4041,8 +4104,9 @@ and encode_expr e =
 			| EParenthesis e ->
 				4, [loop e]
 			| EObjectDecl fl ->
-				5, [enc_array (List.map (fun (f,e) -> enc_obj [
+				5, [enc_array (List.map (fun ((f,p),e) -> enc_obj [
 					"field",enc_string f;
+					"name_pos",encode_pos p;
 					"expr",loop e;
 				]) fl)]
 			| EArrayDecl el ->
@@ -4075,20 +4139,22 @@ and encode_expr e =
 			| EWhile (econd,e,flag) ->
 				16, [loop econd;loop e;VBool (match flag with NormalWhile -> true | DoWhile -> false)]
 			| ESwitch (e,cases,eopt) ->
-				17, [loop e;enc_array (List.map (fun (ecl,eg,e) ->
+				17, [loop e;enc_array (List.map (fun (ecl,eg,e,p) ->
 					enc_obj [
 						"values",enc_array (List.map loop ecl);
 						"guard",null loop eg;
-						"expr",null loop e
+						"expr",null loop e;
+						"pos",encode_pos p;
 					]
-				) cases);null encode_null_expr eopt]
+				) cases);null (fun (e,_) -> encode_null_expr e) eopt]
 			| ETry (e,catches) ->
-				18, [loop e;enc_array (List.map (fun (v,t,e) ->
+				18, [loop e;enc_array (List.map (fun (v,t,e,p) ->
 					enc_obj [
 						"name",encode_placed_name v;
 						"name_pos",encode_pos (pos v);
 						"type",encode_ctype t;
-						"expr",loop e
+						"expr",loop e;
+						"pos",encode_pos p
 					]
 				) catches)]
 			| EReturn eo ->
@@ -4162,10 +4228,20 @@ let decode_enum_with_pos v =
 	| VInt i, VArray a -> i, Array.to_list a
 	| _ -> raise Invalid_expr),(match field v "pos" with
 		| VAbstract(APos p) -> p
-		| _ -> Ast.null_pos) (* Can happen from reification and other sources. *)
+		| _ -> Globals.null_pos) (* Can happen from reification and other sources. *)
 
 let dec_bool = function
 	| VBool b -> b
+	| _ -> raise Invalid_expr
+
+let dec_bool_or_null = function
+	| VBool b -> b
+	| VNull -> false
+	| _ -> raise Invalid_expr
+
+let dec_bool_or_null = function
+	| VBool b -> b
+	| VNull -> false
 	| _ -> raise Invalid_expr
 
 let dec_string v =
@@ -4233,8 +4309,12 @@ let decode_import_mode t =
 
 let decode_import t = (List.map (fun o -> ((dec_string (field o "name")), (decode_pos (field o "pos")))) (dec_array (field t "path")), decode_import_mode (field t "mode"))
 
+let maybe_decode_pos v = match v with
+	| VAbstract (APos p) -> p
+	| _ -> Globals.null_pos
+
 let decode_placed_name vp v =
-	dec_string v,(match vp with VAbstract (APos p) -> p | _ -> null_pos)
+	dec_string v,maybe_decode_pos vp
 
 let rec decode_path t =
 	{
@@ -4242,7 +4322,7 @@ let rec decode_path t =
 		tname = dec_string (field t "name");
 		tparams = (match field t "params" with VNull -> [] | a -> List.map decode_tparam (dec_array a));
 		tsub = opt dec_string (field t "sub");
-	},null_pos
+	},Globals.null_pos
 
 and decode_tparam v =
 	match decode_enum v with
@@ -4288,7 +4368,7 @@ and decode_access v =
 	| _ -> raise Invalid_expr
 
 and decode_meta_entry v =
-	MetaInfo.from_string (dec_string (field v "name")), (match field v "params" with VNull -> [] | a -> List.map decode_expr (dec_array a)), decode_pos (field v "pos")
+	Meta.from_string (dec_string (field v "name")), (match field v "params" with VNull -> [] | a -> List.map decode_expr (dec_array a)), decode_pos (field v "pos")
 
 and decode_meta_content = function
 	| VNull -> []
@@ -4301,7 +4381,7 @@ and decode_field v =
 		| 1, [f] ->
 			FFun (decode_fun f)
 		| 2, [get;set; t; e] ->
-			FProp (dec_string get, dec_string set, opt decode_ctype t, opt decode_expr e)
+			FProp (decode_placed_name VNull get, decode_placed_name VNull set, opt decode_ctype t, opt decode_expr e)
 		| _ ->
 			raise Invalid_expr
 	in
@@ -4350,7 +4430,7 @@ let rec decode_expr v =
 			EParenthesis (loop e)
 		| 5, [a] ->
 			EObjectDecl (List.map (fun o ->
-				(dec_string (field o "field"), loop (field o "expr"))
+				(decode_placed_name (field o "name_pos") (field o "field")),loop (field o "expr")
 			) (dec_array a))
 		| 6, [a] ->
 			EArrayDecl (List.map loop (dec_array a))
@@ -4378,12 +4458,12 @@ let rec decode_expr v =
 			EWhile (loop e1,loop e2,if flag then NormalWhile else DoWhile)
 		| 17, [e;cases;eo] ->
 			let cases = List.map (fun c ->
-				(List.map loop (dec_array (field c "values")),opt loop (field c "guard"),opt loop (field c "expr"))
+				(List.map loop (dec_array (field c "values")),opt loop (field c "guard"),opt loop (field c "expr"),maybe_decode_pos (field c "pos"))
 			) (dec_array cases) in
-			ESwitch (loop e,cases,opt decode_null_expr eo)
+			ESwitch (loop e,cases,opt (fun v -> decode_null_expr v,Globals.null_pos) eo)
 		| 18, [e;catches] ->
 			let catches = List.map (fun c ->
-				((decode_placed_name (field c "name_pos") (field c "name")),(decode_ctype (field c "type")),loop (field c "expr"))
+				((decode_placed_name (field c "name_pos") (field c "name")),(decode_ctype (field c "type")),loop (field c "expr"),maybe_decode_pos (field c "pos"))
 			) (dec_array catches) in
 			ETry (loop e, catches)
 		| 19, [e] ->
@@ -4462,24 +4542,24 @@ let encode_meta m set =
 		"add", VFunction (Fun3 (fun k vl p ->
 			(try
 				let el = List.map decode_expr (dec_array vl) in
-				meta := (MetaInfo.from_string (dec_string k), el, decode_pos p) :: !meta;
+				meta := (Meta.from_string (dec_string k), el, decode_pos p) :: !meta;
 				set (!meta)
 			with Invalid_expr ->
 				failwith "Invalid expression");
 			VNull
 		));
 		"extract", VFunction (Fun1 (fun k ->
-			let k = MetaInfo.from_string (try dec_string k with Invalid_expr -> raise Builtin_error) in
+			let k = Meta.from_string (try dec_string k with Invalid_expr -> raise Builtin_error) in
 			encode_array encode_meta_entry (List.filter (fun (m,_,_) -> m = k) (!meta))
 		));
 		"remove", VFunction (Fun1 (fun k ->
-			let k = MetaInfo.from_string (try dec_string k with Invalid_expr -> raise Builtin_error) in
+			let k = Meta.from_string (try dec_string k with Invalid_expr -> raise Builtin_error) in
 			meta := List.filter (fun (m,_,_) -> m <> k) (!meta);
 			set (!meta);
 			VNull
 		));
 		"has", VFunction (Fun1 (fun k ->
-			let k = MetaInfo.from_string (try dec_string k with Invalid_expr -> raise Builtin_error) in
+			let k = Meta.from_string (try dec_string k with Invalid_expr -> raise Builtin_error) in
 			VBool (List.exists (fun (m,_,_) -> m = k) (!meta));
 		));
 	]
@@ -4526,6 +4606,7 @@ and encode_efield f =
 		"name", enc_string f.ef_name;
 		"type", encode_type f.ef_type;
 		"pos", encode_pos f.ef_pos;
+		"namePos", encode_pos f.ef_name_pos;
 		"index", VInt f.ef_index;
 		"meta", encode_meta f.ef_meta (fun m -> f.ef_meta <- m);
 		"doc", null enc_string f.ef_doc;
@@ -4542,6 +4623,7 @@ and encode_cfield f =
 		"expr", (VFunction (Fun0 (fun() -> ignore(follow f.cf_type); (match f.cf_expr with None -> VNull | Some e -> encode_texpr e))));
 		"kind", encode_field_kind f.cf_kind;
 		"pos", encode_pos f.cf_pos;
+		"namePos",encode_pos f.cf_name_pos;
 		"doc", null enc_string f.cf_doc;
 		"overloads", encode_ref f.cf_overloads (encode_array encode_cfield) (fun() -> "overloads");
 	]
@@ -4578,7 +4660,7 @@ and encode_class_kind k =
 	let tag, pl = (match k with
 		| KNormal -> 0, []
 		| KTypeParameter pl -> 1, [encode_tparams pl]
-		| KExtension (cl, params) -> 2, [encode_clref cl; encode_tparams params]
+		(* KExtension was here *)
 		| KExpr e -> 3, [encode_expr e]
 		| KGeneric -> 4, []
 		| KGenericInstance (cl, params) -> 5, [encode_clref cl; encode_tparams params]
@@ -4903,11 +4985,13 @@ let decode_cfield v =
 		cf_type = decode_type (field v "type");
 		cf_public = dec_bool (field v "isPublic");
 		cf_pos = decode_pos (field v "pos");
+		cf_name_pos = decode_pos (field v "namePos");
 		cf_doc = opt dec_string (field v "doc");
 		cf_meta = []; (* TODO *)
 		cf_kind = decode_field_kind (field v "kind");
 		cf_params = decode_type_params (field v "params");
 		cf_expr = None;
+		cf_expr_unoptimized = None;
 		cf_overloads = decode_ref (field v "overloads");
 	}
 
@@ -4916,6 +5000,7 @@ let decode_efield v =
 		ef_name = dec_string (field v "name");
 		ef_type = decode_type (field v "type");
 		ef_pos = decode_pos (field v "pos");
+		ef_name_pos = decode_pos (field v "namePos");
 		ef_index = (match field v "index" with VInt i -> i | _ -> raise Invalid_expr);
 		ef_meta = []; (* TODO *)
 		ef_doc = opt dec_string (field v "doc");
@@ -5038,7 +5123,7 @@ let decode_type_def v =
 		in
 		EEnum (mk (if isExtern then [EExtern] else []) (List.map conv fields))
 	| 1, [] ->
-		ETypedef (mk (if isExtern then [EExtern] else []) (CTAnonymous fields,null_pos))
+		ETypedef (mk (if isExtern then [EExtern] else []) (CTAnonymous fields,Globals.null_pos))
 	| 2, [ext;impl;interf] ->
 		let flags = if isExtern then [HExtern] else [] in
 		let flags = (match interf with VNull | VBool false -> flags | VBool true -> HInterface :: flags | _ -> raise Invalid_expr) in
@@ -5075,7 +5160,7 @@ let rec make_const e =
 		| TBool b -> VBool b
 		| TNull -> VNull
 		| TThis | TSuper -> raise Exit)
-	| TParenthesis e | TMeta(_,e) ->
+	| TParenthesis e | TMeta(_,e) | TCast(e,None) ->
 		make_const e
 	| TObjectDecl el ->
 		VObject (obj (hash_field (get_ctx())) (List.map (fun (f,e) -> f, make_const e) el))

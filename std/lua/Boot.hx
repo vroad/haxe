@@ -223,7 +223,7 @@ class Boot {
 	   Define an array from the given table
 	*/
 	public inline static function defArray<T>(tab: Table<Int,T>, ?length : Int) : Array<T> {
-		if (length == null) length = tableMaxN(tab) + 1; // maxn doesn't count 0 index
+		if (length == null) length = TableTools.maxn(tab) + 1; // maxn doesn't count 0 index
 		return untyped _hx_tab_array(tab, length);
 	}
 
@@ -252,9 +252,9 @@ class Boot {
 	}
 
 	/*
-	   A 32 bit clamp function for integers
+	   A 32 bit clamp function for numbers
 	*/
-	public inline static function clamp(x:Int){
+	public inline static function clamp(x:Float){
 		return untyped __define_feature__("lua.Boot.clamp", _hx_bit_clamp(x));
 	}
 
@@ -295,17 +295,13 @@ class Boot {
 		else if (cl1 == cl2) return true;
 		else if (untyped cl1.__interfaces__ != null) {
 			var intf = untyped cl1.__interfaces__;
-			for (i in 1...( tableMaxN(intf) + 1)){
+			for (i in 1...( TableTools.maxn(intf) + 1)){
 				// check each interface, including extended interfaces
 				if (extendsOrImplements(intf[1], cl2)) return true;
 			}
 		}
 		// check standard inheritance
 		return extendsOrImplements(untyped cl1.__super__, cl2);
-	}
-
-	public inline static function tableMaxN(t:Table.AnyTable) : Int {
-		return untyped __define_feature__("use._hx_maxn", _hx_maxn(t));
 	}
 
 	/*
@@ -354,19 +350,19 @@ class Boot {
 	}
 
 	public static function fieldIterator( o : Table<String,Dynamic>) : Iterator<String> {
-		var tbl = (untyped o.__fields__ != null) ?  o.__fields__ : o;
-		var cur = Lua.pairs(tbl);
+		var tbl : Table<String,String> =  cast (untyped o.__fields__ != null) ?  o.__fields__ : o;
+		var cur = Lua.pairs(tbl).next;
 		var next_valid = function(tbl, val){
 			while (hiddenFields[untyped val] != null){
-				val = cur(tbl, val);
+				val = cur(tbl, val).index;
 			}
 			return val;
 		}
-		var cur_val = next_valid(tbl, cur(tbl, null));
+		var cur_val = next_valid(tbl, cur(tbl, null).index);
 		return {
 			next : function(){
 				var ret = cur_val;
-				cur_val = next_valid(tbl, cur(tbl, cur_val));
+				cur_val = next_valid(tbl, cur(tbl, cur_val).index);
 				return ret;
 			},
 			hasNext : function() return cur_val !=  null

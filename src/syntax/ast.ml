@@ -17,189 +17,7 @@
 	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *)
 
-type pos = {
-	pfile : string;
-	pmin : int;
-	pmax : int;
-}
-
-module IntMap = Map.Make(struct type t = int let compare a b = a - b end)
-module StringMap = Map.Make(struct type t = string let compare = String.compare end)
-
-module Meta = struct
-	type strict_meta =
-		| Abi
-		| Abstract
-		| Access
-		| Accessor
-		| Allow
-		| Analyzer
-		| Annotation
-		| ArrayAccess
-		| Ast
-		| AstSource
-		| AutoBuild
-		| Bind
-		| Bitmap
-		| BridgeProperties
-		| Build
-		| BuildXml
-		| Callable
-		| Class
-		| ClassCode
-		| Commutative
-		| CompilerGenerated
-		| Const
-		| CoreApi
-		| CoreType
-		| CppFileCode
-		| CppInclude
-		| CppNamespaceCode
-		| CsNative
-		| Dce
-		| Debug
-		| Decl
-		| DefParam
-		| Delegate
-		| Depend
-		| Deprecated
-		| DirectlyUsed
-		| DynamicObject
-		| Eager
-		| Enum
-		| EnumConstructorParam
-		| Event
-		| Exhaustive
-		| Expose
-		| Extern
-		| FakeEnum
-		| File
-		| FileXml
-		| Final
-		| Fixed
-		| FlatEnum
-		| Font
-		| Forward
-		| ForwardStatics
-		| From
-		| FunctionCode
-		| FunctionTailCode
-		| Generic
-		| GenericBuild
-		| GenericInstance
-		| Getter
-		| Hack
-		| HasUntyped
-		| HaxeGeneric
-		| HeaderClassCode
-		| HeaderCode
-		| HeaderInclude
-		| HeaderNamespaceCode
-		| HxGen
-		| IfFeature
-		| Impl
-		| PythonImport
-		| ImplicitCast
-		| Include
-		| InitPackage
-		| InlineConstructorVariable
-		| Internal
-		| IsVar
-		| JavaCanonical
-		| JavaNative
-		| JsRequire
-		| Keep
-		| KeepInit
-		| KeepSub
-		| LibType
-		| LuaRequire
-		| Meta
-		| Macro
-		| MaybeUsed
-		| MergeBlock
-		| MultiType
-		| Native
-		| NativeChildren
-		| NativeGen
-		| NativeGeneric
-		| NativeProperty
-		| NativeStaticExtension
-		| NoCompletion
-		| NoDebug
-		| NoDoc
-		| NoExpr
-		| NoImportGlobal
-		| NonVirtual
-		| NoPackageRestrict
-		| NoPrivateAccess
-		| NoStack
-		| NotNull
-		| NoUsing
-		| Ns
-		| Objc
-		| Op
-		| Optional
-		| Overload
-		| PhpConstants
-		| PhpGlobal
-		| PrivateAccess
-		| Property
-		| Protected
-		| Public
-		| PublicFields
-		| Pure
-		| QuotedField
-		| ReadOnly
-		| RealPath
-		| Remove
-		| Require
-		| RequiresAssign
-		| Resolve
-		| Rtti
-		| Runtime
-		| RuntimeValue
-		| Scalar
-		| SelfCall
-		| Setter
-		| SkipCtor
-		| SkipReflection
-		| Sound
-		| SourceFile
-		| StackOnly
-		| StoredTypedExpr
-		| Strict
-		| Struct
-		| StructAccess
-		| StructInit
-		| SuppressWarnings
-		| This
-		| Throws
-		| To
-		| ToString
-		| Transient
-		| TemplatedCall
-		| ValueUsed
-		| Volatile
-		| Unbound
-		| UnifyMinDynamic
-		| Unreflective
-		| Unsafe
-		| Usage
-		| Used
-		| UserVariable
-		| Value
-		| Void
-		| Last
-		(* do not put any custom metadata after Last *)
-		| Dollar of string
-		| Custom of string
-
-	let has m ml = List.exists (fun (m2,_,_) -> m = m2) ml
-	let get m ml = List.find (fun (m2,_,_) -> m = m2) ml
-
-	let to_string_ref = ref (fun _ -> assert false)
-	let to_string (m : strict_meta) : string = !to_string_ref m
-end
+open Globals
 
 type keyword =
 	| Function
@@ -355,7 +173,7 @@ and expr_def =
 	| EBinop of binop * expr * expr
 	| EField of expr * string
 	| EParenthesis of expr
-	| EObjectDecl of (string * expr) list
+	| EObjectDecl of (placed_name * expr) list
 	| EArrayDecl of expr list
 	| ECall of expr * expr list
 	| ENew of placed_type_path * expr list
@@ -367,8 +185,8 @@ and expr_def =
 	| EIn of expr * expr
 	| EIf of expr * expr * expr option
 	| EWhile of expr * expr * while_flag
-	| ESwitch of expr * (expr list * expr option * expr option) list * expr option option
-	| ETry of expr * (placed_name * type_hint * expr) list
+	| ESwitch of expr * (expr list * expr option * expr option * pos) list * (expr option * pos) option
+	| ETry of expr * (placed_name * type_hint * expr * pos) list
 	| EReturn of expr option
 	| EBreak
 	| EContinue
@@ -407,7 +225,7 @@ and access =
 and class_field_kind =
 	| FVar of type_hint option * expr option
 	| FFun of func
-	| FProp of string * string * type_hint option * expr option
+	| FProp of placed_name * placed_name * type_hint option * expr option
 
 and class_field = {
 	cff_name : placed_name;
@@ -474,8 +292,6 @@ type type_decl = type_def * pos
 
 type package = string list * type_decl list
 
-exception Error of string * pos
-
 let is_lower_ident i =
 	let rec loop p =
 		match String.unsafe_get i p with
@@ -497,8 +313,6 @@ let is_prefix = function
 
 let base_class_name = snd
 
-let null_pos = { pfile = "?"; pmin = -1; pmax = -1 }
-
 let punion p p2 =
 	{
 		pfile = p.pfile;
@@ -513,8 +327,6 @@ let rec punion_el el = match el with
 		p
 	| (_,p) :: el ->
 		punion p (punion_el el)
-
-let s_type_path (p,s) = match p with [] -> s | _ -> String.concat "." p ^ "." ^ s
 
 let parse_path s =
 	match List.rev (ExtString.String.nsplit s ".") with
@@ -744,7 +556,7 @@ let map_expr loop (e,p) =
 	| EBinop (op,e1,e2) -> EBinop (op,loop e1, loop e2)
 	| EField (e,f) -> EField (loop e, f)
 	| EParenthesis e -> EParenthesis (loop e)
-	| EObjectDecl fl -> EObjectDecl (List.map (fun (f,e) -> f,loop e) fl)
+	| EObjectDecl fl -> EObjectDecl (List.map (fun ((f,p),e) -> (f,p),loop e) fl)
 	| EArrayDecl el -> EArrayDecl (List.map loop el)
 	| ECall (e,el) -> ECall (loop e, List.map loop el)
 	| ENew (t,el) -> ENew (tpath t,List.map loop el)
@@ -756,8 +568,8 @@ let map_expr loop (e,p) =
 	| EIn (e1,e2) -> EIn (loop e1, loop e2)
 	| EIf (e,e1,e2) -> EIf (loop e, loop e1, opt loop e2)
 	| EWhile (econd,e,f) -> EWhile (loop econd, loop e, f)
-	| ESwitch (e,cases,def) -> ESwitch (loop e, List.map (fun (el,eg,e) -> List.map loop el, opt loop eg, opt loop e) cases, opt (opt loop) def)
-	| ETry (e,catches) -> ETry (loop e, List.map (fun (n,t,e) -> n,type_hint t,loop e) catches)
+	| ESwitch (e,cases,def) -> ESwitch (loop e, List.map (fun (el,eg,e,p) -> List.map loop el, opt loop eg, opt loop e, p) cases, opt (fun (eo,p) -> opt loop eo,p) def)
+	| ETry (e,catches) -> ETry (loop e, List.map (fun (n,t,e,p) -> n,type_hint t,loop e,p) catches)
 	| EReturn e -> EReturn (opt loop e)
 	| EBreak -> EBreak
 	| EContinue -> EContinue
@@ -786,15 +598,15 @@ let iter_expr loop (e,p) =
 	| EObjectDecl fl -> List.iter (fun (_,e) -> loop e) fl;
 	| ETry(e1,catches) ->
 		loop e1;
-		List.iter (fun (_,_,e) -> loop e) catches
+		List.iter (fun (_,_,e,_) -> loop e) catches
 	| ESwitch(e1,cases,def) ->
 		loop e1;
-		List.iter (fun (el,eg,e) ->
+		List.iter (fun (el,eg,e,_) ->
 			exprs el;
 			opt eg;
 			opt e;
 		) cases;
-		(match def with None -> () | Some e -> opt e);
+		(match def with None -> () | Some (e,_) -> opt e);
 	| EFunction(_,f) ->
 		List.iter (fun (_,_,_,_,eo) -> opt eo) f.f_args;
 		opt f.f_expr
@@ -808,7 +620,7 @@ let s_expr e =
 		| EBinop (op,e1,e2) -> s_expr_inner tabs e1 ^ " " ^ s_binop op ^ " " ^ s_expr_inner tabs e2
 		| EField (e,f) -> s_expr_inner tabs e ^ "." ^ f
 		| EParenthesis e -> "(" ^ (s_expr_inner tabs e) ^ ")"
-		| EObjectDecl fl -> "{ " ^ (String.concat ", " (List.map (fun (n,e) -> n ^ " : " ^ (s_expr_inner tabs e)) fl)) ^ " }"
+		| EObjectDecl fl -> "{ " ^ (String.concat ", " (List.map (fun ((n,_),e) -> n ^ " : " ^ (s_expr_inner tabs e)) fl)) ^ " }"
 		| EArrayDecl el -> "[" ^ s_expr_list tabs el ", " ^ "]"
 		| ECall (e,el) -> s_expr_inner tabs e ^ "(" ^ s_expr_list tabs el ", " ^ ")"
 		| ENew (t,el) -> "new " ^ s_complex_type_path tabs t ^ "(" ^ s_expr_list tabs el ", " ^ ")"
@@ -826,7 +638,7 @@ let s_expr e =
 		| EWhile (econd,e,NormalWhile) -> "while (" ^ s_expr_inner tabs econd ^ ") " ^ s_expr_inner tabs e
 		| EWhile (econd,e,DoWhile) -> "do " ^ s_expr_inner tabs e ^ " while (" ^ s_expr_inner tabs econd ^ ")"
 		| ESwitch (e,cases,def) -> "switch " ^ s_expr_inner tabs e ^ " {\n\t" ^ tabs ^ String.concat ("\n\t" ^ tabs) (List.map (s_case tabs) cases) ^
-			(match def with None -> "" | Some def -> "\n\t" ^ tabs ^ "default:" ^
+			(match def with None -> "" | Some (def,_) -> "\n\t" ^ tabs ^ "default:" ^
 			(match def with None -> "" | Some def -> s_expr_omit_block tabs def)) ^ "\n" ^ tabs ^ "}"
 		| ETry (e,catches) -> "try " ^ s_expr_inner tabs e ^ String.concat "" (List.map (s_catch tabs) catches)
 		| EReturn e -> "return" ^ s_opt_expr tabs e " "
@@ -839,17 +651,15 @@ let s_expr e =
 		| ETernary (e1,e2,e3) -> s_expr_inner tabs e1 ^ " ? " ^ s_expr_inner tabs e2 ^ " : " ^ s_expr_inner tabs e3
 		| ECheckType (e,(t,_)) -> "(" ^ s_expr_inner tabs e ^ " : " ^ s_complex_type tabs t ^ ")"
 		| EMeta (m,e) -> s_metadata tabs m ^ " " ^ s_expr_inner tabs e
-		| EDisplay (e1,_) -> Printf.sprintf "#DISPLAY(%s)" (s_expr_inner tabs e1)
+		| EDisplay (e1,iscall) -> Printf.sprintf "#DISPLAY(%s, %b)" (s_expr_inner tabs e1) iscall
 		| EDisplayNew tp -> Printf.sprintf "#DISPLAY_NEW(%s)" (s_complex_type_path tabs tp)
 	and s_expr_list tabs el sep =
 		(String.concat sep (List.map (s_expr_inner tabs) el))
 	and s_complex_type_path tabs (t,_) =
-		(String.concat "." t.tpackage) ^ if List.length t.tpackage > 0 then "." else "" ^
-		t.tname ^
-		match t.tsub with
-		| Some s -> "." ^ s
-		| None -> "" ^
-		s_type_param_or_consts tabs t.tparams
+		Printf.sprintf "%s%s%s"
+			(s_type_path (t.tpackage,t.tname))
+			(Option.map_default (fun s -> "." ^ s) "" t.tsub)
+			(s_type_param_or_consts tabs t.tparams)
 	and s_type_param_or_consts tabs pl =
 		if List.length pl > 0
 		then "<" ^ (String.concat "," (List.map (s_type_param_or_const tabs) pl)) ^ ">"
@@ -874,7 +684,7 @@ let s_expr e =
 		if List.length f.cff_access > 0 then String.concat " " (List.map s_access f.cff_access) else "" ^
 		match f.cff_kind with
 		| FVar (t,e) -> "var " ^ (fst f.cff_name) ^ s_opt_type_hint tabs t " : " ^ s_opt_expr tabs e " = "
-		| FProp (get,set,t,e) -> "var " ^ (fst f.cff_name) ^ "(" ^ get ^ "," ^ set ^ ")" ^ s_opt_type_hint tabs t " : " ^ s_opt_expr tabs e " = "
+		| FProp ((get,_),(set,_),t,e) -> "var " ^ (fst f.cff_name) ^ "(" ^ get ^ "," ^ set ^ ")" ^ s_opt_type_hint tabs t " : " ^ s_opt_expr tabs e " = "
 		| FFun func -> "function " ^ (fst f.cff_name) ^ s_func tabs func
 	and s_metadata tabs (s,e,_) =
 		"@" ^ Meta.to_string s ^ if List.length e > 0 then "(" ^ s_expr_list tabs e ", " ^ ")" else ""
@@ -900,11 +710,11 @@ let s_expr e =
 		if o then "?" else "" ^ n ^ s_opt_type_hint tabs t ":" ^ s_opt_expr tabs e " = "
 	and s_var tabs ((n,_),t,e) =
 		n ^ (s_opt_type_hint tabs t ":") ^ s_opt_expr tabs e " = "
-	and s_case tabs (el,e1,e2) =
+	and s_case tabs (el,e1,e2,_) =
 		"case " ^ s_expr_list tabs el ", " ^
 		(match e1 with None -> ":" | Some e -> " if (" ^ s_expr_inner tabs e ^ "):") ^
 		(match e2 with None -> "" | Some e -> s_expr_omit_block tabs e)
-	and s_catch tabs ((n,_),(t,_),e) =
+	and s_catch tabs ((n,_),(t,_),e,_) =
 		" catch(" ^ n ^ ":" ^ s_complex_type tabs t ^ ") " ^ s_expr_inner tabs e
 	and s_block tabs el opn nl cls =
 		 opn ^ "\n\t" ^ tabs ^ (s_expr_list (tabs ^ "\t") el (";\n\t" ^ tabs)) ^ ";" ^ nl ^ tabs ^ cls
@@ -918,7 +728,7 @@ let s_expr e =
 let get_value_meta meta =
 	try
 		begin match Meta.get Meta.Value meta with
-			| (_,[EObjectDecl values,_],_) -> List.fold_left (fun acc (s,e) -> PMap.add s e acc) PMap.empty values
+			| (_,[EObjectDecl values,_],_) -> List.fold_left (fun acc ((s,_),e) -> PMap.add s e acc) PMap.empty values
 			| _ -> raise Not_found
 		end
 	with Not_found ->
@@ -975,4 +785,11 @@ module Expr = struct
 	let ensure_block e = match fst e with
 		| EBlock _ -> e
 		| _ -> (EBlock [e],pos e)
+
+	let field_assoc name fl =
+		let rec loop fl = match fl with
+			| ((name',_),e) :: fl -> if name' = name then e else loop fl
+			| [] -> raise Not_found
+		in
+		loop fl
 end

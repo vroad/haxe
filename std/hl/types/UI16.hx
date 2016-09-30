@@ -19,28 +19,6 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-package cpp;
+package hl.types;
 
-@:native("NSData") @:objc extern class NSDataData { }
-
-@:objc
-extern abstract NSData( NSDataData )
-{
-   @:native("_hx_bytes_to_nsdata") @:extern static function BytesToNSData(b:haxe.io.BytesData) : NSData return null;
-   @:native("_hx_bytes_to_nsdata") @:extern static function BytesToNSDataData(b:haxe.io.BytesData) : NSDataData return null;
-   @:native("_hx_nsdata_to_bytes") @:extern static function NSDataDataToBytes(d:NSDataData) : haxe.io.BytesData return null;
-
-
-   inline function new(d:NSDataData) this = d;
-
-   @:from @:extern
-   static public inline function fromBytesData(d:haxe.io.BytesData):NSData return new NSData( BytesToNSDataData(d) );
-
-   @:from @:extern
-   static public inline function fromBytes(d:haxe.io.Bytes):NSData return new NSData( BytesToNSDataData(d.getData()) );
-
-   @:to @:extern
-   public inline function toBytes():haxe.io.BytesData return NSDataDataToBytes(this);
-
-}
-
+@:coreType @:notNull @:runtimeValue abstract UI16 to Int from Int {}

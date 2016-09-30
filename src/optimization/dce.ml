@@ -20,6 +20,7 @@
 open Ast
 open Common
 open Type
+open Globals
 
 type dce = {
 	com : context;
@@ -27,6 +28,7 @@ type dce = {
 	std_dirs : string list;
 	debug : bool;
 	follow_expr : dce -> texpr -> unit;
+	dependent_types : (string list * string,module_type list) Hashtbl.t;
 	mutable curclass : tclass;
 	mutable added_fields : (tclass * tclass_field * bool) list;
 	mutable marked_fields : tclass_field list;
@@ -176,8 +178,8 @@ and mark_t dce p t =
 			List.iter (mark_t dce p) pl
 		| TAbstract(a,pl) when Meta.has Meta.MultiType a.a_meta ->
 			begin try
-				mark_t dce p (snd (Codegen.AbstractCast.find_multitype_specialization dce.com a pl p))
-			with Typecore.Error _ ->
+				mark_t dce p (snd (Typecore.AbstractCast.find_multitype_specialization dce.com a pl p))
+			with Error.Error _ ->
 				()
 			end
 		| TAbstract(a,pl) ->
@@ -204,6 +206,13 @@ let mark_mt dce mt = match mt with
 
 (* find all dependent fields by checking implementing/subclassing types *)
 let rec mark_dependent_fields dce csup n stat =
+	let dependent = try
+		Hashtbl.find dce.dependent_types csup.cl_path
+	with Not_found ->
+		let cl = List.filter (fun mt -> match mt with TClassDecl c -> is_parent csup c | _ -> false) dce.com.types in
+		Hashtbl.add dce.dependent_types csup.cl_path cl;
+		cl
+	in
 	List.iter (fun mt -> match mt with
 		| TClassDecl c when is_parent csup c ->
 			let rec loop c =
@@ -223,7 +232,7 @@ let rec mark_dependent_fields dce csup n stat =
 			in
 			loop c
 		| _ -> ()
-	) dce.com.types
+	) dependent
 
 (* expr and field evaluation *)
 
@@ -570,7 +579,8 @@ let run com main full =
 	let dce = {
 		com = com;
 		full = full;
-		std_dirs = if full then [] else List.map Common.unique_full_path com.std_path;
+		dependent_types = Hashtbl.create 0;
+		std_dirs = if full then [] else List.map Path.unique_full_path com.std_path;
 		debug = Common.defined com Define.DceDebug;
 		added_fields = [];
 		follow_expr = expr;
@@ -609,7 +619,7 @@ let run com main full =
 			begin match c.cl_init with
 				| Some e when keep_class || Meta.has Meta.KeepInit c.cl_meta ->
 					(* create a fake field to deal with our internal logic (issue #3286) *)
-					let cf = mk_field "__init__" e.etype e.epos in
+					let cf = mk_field "__init__" e.etype e.epos null_pos in
 					cf.cf_expr <- Some e;
 					loop true cf
 				| _ ->

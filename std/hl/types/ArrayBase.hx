@@ -33,12 +33,17 @@ class ArrayAccess {
 		throw "Not implemented";
 	}
 
+	public function blit( pos : Int, src : ArrayAccess, srcpos : Int, len : Int ) : Void {
+		throw "Not implemented";
+	}
+
 }
 
 @:keep
 class ArrayBase extends ArrayAccess {
 
 	public var length(default,null) : Int;
+
 
 	public function pushDyn( v : Dynamic ) : Int {
 		throw "Not implemented";
@@ -110,8 +115,8 @@ class ArrayBase extends ArrayAccess {
 		return a;
 	}
 
-	public static function allocI16( bytes : BytesAccess<I16>, length : Int ) @:privateAccess {
-		var a : ArrayI16 = untyped $new(ArrayI16);
+	public static function allocUI16( bytes : BytesAccess<UI16>, length : Int ) @:privateAccess {
+		var a : ArrayUI16 = untyped $new(ArrayUI16);
 		a.length = length;
 		a.bytes = bytes;
 		a.size = length;
@@ -160,7 +165,7 @@ class BasicIterator<T> {
 
 	public function new() {
 		size = length = 0;
-		bytes = new Bytes(0);
+		bytes = null;
 	}
 
 	public function concat( a : ArrayBasic<T> ) : ArrayBasic<T> {
@@ -217,6 +222,12 @@ class BasicIterator<T> {
 		return v;
 	}
 
+	override function blit( pos : Int, src : ArrayAccess, srcpos : Int, len : Int ) : Void {
+		var src = (cast src : ArrayBasic<T>);
+		if( pos < 0 || srcpos < 0 || len < 0 || pos + len > length || srcpos + len > src.length ) throw haxe.io.Error.OutsideBounds;
+		(bytes:Bytes).blit(pos << bytes.sizeBits,src.bytes,srcpos<<bytes.sizeBits,len<<bytes.sizeBits);
+	}
+
 	override function slice( pos : Int, ?end : Int ) : ArrayBasic<T> {
 		if( pos < 0 ) {
 			pos = this.length + pos;
@@ -250,8 +261,28 @@ class BasicIterator<T> {
 	}
 
 	override function splice( pos : Int, len : Int ) : ArrayBasic<T> {
-		throw "TODO";
-		return null;
+		if( len < 0 )
+			return new ArrayBasic<T>();
+		if( pos < 0 ){
+			pos = this.length + pos;
+			if( pos < 0 ) pos = 0;
+		}
+		if( pos > this.length ) {
+			pos = 0;
+			len = 0;
+		} else if( pos + len > this.length ) {
+			len = this.length - pos;
+			if( len < 0 ) len = 0;
+		}
+		if( len == 0 )
+			return new ArrayBasic<T>();
+		var ret = new ArrayBasic<T>();
+		ret.bytes = (bytes:Bytes).sub(pos << bytes.sizeBits, len << bytes.sizeBits);
+		ret.size = ret.length = len;
+		var end = pos + len;
+		(bytes:Bytes).blit(pos << bytes.sizeBits, bytes, end << bytes.sizeBits, (length - end) << bytes.sizeBits);
+		length -= len;
+		return ret;
 	}
 
 	override function toString() : String {
@@ -388,6 +419,6 @@ class BasicIterator<T> {
 }
 
 typedef ArrayI32 = ArrayBasic<Int>;
-typedef ArrayI16 = ArrayBasic<I16>;
+typedef ArrayUI16 = ArrayBasic<UI16>;
 typedef ArrayF32 = ArrayBasic<F32>;
 typedef ArrayF64 = ArrayBasic<Float>;
