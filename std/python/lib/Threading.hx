@@ -19,59 +19,22 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-package sys.db;
+package python.lib;
 
-/**
-	Record Object : the persistent object base type. See the tutorial on Haxe
-	website to learn how to use Record.
-**/
-@:keepSub
-@:autoBuild(sys.db.RecordMacros.macroBuild()) @:skipFields
-@:deprecated("This class will be removed soon, please install the record-macros library")
-class Object {
+import python.lib.threading.Thread;
 
-	var _lock(default,never) : Bool;
-	var _manager(default,never) : sys.db.Manager<Dynamic>;
-#if !neko
-	@:keep var __cache__:Dynamic;
-#end
+@:pythonImport("threading")
+extern class Threading {
 
-	public function new() {
-		#if !neko
-		if( _manager == null ) untyped _manager = __getManager();
-		#end
-	}
-
-#if !neko
-	private function __getManager():sys.db.Manager<Dynamic>
-	{
-		var cls:Dynamic = Type.getClass(this);
-		return cls.manager;
-	}
-#end
-
-	public function insert() {
-		untyped _manager.doInsert(this);
-	}
-
-	public function update() {
-		untyped _manager.doUpdate(this);
-	}
-
-	public function lock() {
-		untyped _manager.doLock(this);
-	}
-
-	public function delete() {
-		untyped _manager.doDelete(this);
-	}
-
-	public function isLocked() {
-		return _lock;
-	}
-
-	public function toString() : String {
-		return untyped _manager.objectToString(this);
-	}
-
+	public static function active_count():Int;
+	public static function current_thread():Thread;
+	public static function get_ident():Int;
+	public static function enumerate():Array<Thread>;
+	public static function main_thread():Thread;
+	public static function settrace(func:Dynamic):Void;
+	public static function setprofile(func:Dynamic):Void;
+	public static function stack_size(?size:Int):Int;
+	public static function local():Dynamic;
+	public static var TIMEOUT_MAX:Float;
+	
 }
