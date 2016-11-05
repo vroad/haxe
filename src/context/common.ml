@@ -207,6 +207,7 @@ module IdentifierType = struct
 		| ITGlobal of module_type * string * Type.t
 		| ITType of module_type
 		| ITPackage of string
+		| ITLiteral of string
 		| ITTimer of string
 
 	let get_name = function
@@ -216,6 +217,7 @@ module IdentifierType = struct
 		| ITGlobal(_,s,_) -> s
 		| ITType mt -> snd (t_infos mt).mt_path
 		| ITPackage s -> s
+		| ITLiteral s -> s
 		| ITTimer s -> s
 end
 
@@ -472,6 +474,7 @@ module Define = struct
 		| HaxeBoot
 		| HaxeVer
 		| HxcppApiLevel
+		| HxcppGcGenerational
 		| IncludePrefix
 		| Interp
 		| JavaVer
@@ -565,6 +568,7 @@ module Define = struct
 		| HaxeBoot -> ("haxe_boot","Given the name 'haxe' to the flash boot class instead of a generated name")
 		| HaxeVer -> ("haxe_ver","The current Haxe version value")
 		| HxcppApiLevel -> ("hxcpp_api_level","Provided to allow compatibility between hxcpp versions")
+		| HxcppGcGenerational -> ("HXCPP_GC_GENERATIONAL","Experimental Garbage Collector")
 		| IncludePrefix -> ("include_prefix","prepend path to generated include files")
 		| Interp -> ("interp","The code is compiled to be run with --interp")
 		| JavaVer -> ("java_ver", "<version:5-7> Sets the Java version to be targeted")

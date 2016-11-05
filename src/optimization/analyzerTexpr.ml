@@ -154,6 +154,10 @@ let is_ref_type = function
 	| TAbstract({a_path=["hl";"types"],"Ref"},_) -> true
 	| _ -> false
 
+let is_asvar_type t = match follow t with
+	| TAbstract({a_path = (["haxe";"extern"],"AsVar")},_) -> true
+	| _ -> false
+
 let type_change_ok com t1 t2 =
 	if t1 == t2 then
 		true
@@ -605,6 +609,7 @@ module Fusion = struct
 			let b = num_uses <= 1 &&
 			        num_writes = 0 &&
 			        can_be_used_as_value &&
+					not (is_asvar_type v.v_type) &&
 			        (is_compiler_generated || config.optimize && config.fusion && config.user_var_fusion && not has_type_params)
 			in
 			if config.fusion_debug then begin
@@ -912,7 +917,7 @@ module Cleanup = struct
 				let e2 = loop e2 in
 				let e3 = loop e3 in
 				if_or_op e e1 e2 e3;
-			| TUnop((Increment | Decrement),_,({eexpr = TConst _} as e1)) ->
+			| TUnop((Increment | Decrement),_,e1) when (match (Texpr.skip e1).eexpr with TConst _ -> true | _ -> false) ->
 				loop e1
 			| TCall({eexpr = TLocal v},_) when is_really_unbound v ->
 				e
